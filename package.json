@@ -1,0 +1,41 @@
+{
+  "name": "discord-music-bot",
+  "version": "1.0.0",
+  "description": "A Discord music bot with Spotify integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "discord",
+    "music",
+    "bot",
+    "spotify"
+  ],
+  "author": "tester248",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/opus": "^0.9.0",
+    "@discordjs/voice": "^0.19.0",
+    "@distube/ytdl-core": "^4.16.12",
+    "@snazzah/davey": "^0.1.8",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "ffmpeg-static": "^5.2.0",
+    "genius-lyrics": "^4.4.7",
+    "libsodium-wrappers": "^0.7.15",
+    "play-dl": "^1.9.7",
+    "sodium-native": "^5.0.10",
+    "spotify-web-api-node": "^5.0.2",
+    "youtubei.js": "^16.0.1",
+    "ytdl-core": "^4.11.5"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
