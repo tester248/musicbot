@@ -1,20 +1,22 @@
-FROM node:18-alpine AS builder
+FROM node:18-slim AS builder
 
-# Install Java runtime and curl for downloading Lavalink
-RUN apk add --no-cache openjdk17-jre curl
+# Install Java runtime (OpenJDK 17) and curl (Debian based)
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 
-# Copy bot source and install dependencies
+# Install bot dependencies
 COPY package*.json ./
 RUN npm install --production
+
+# Copy bot source code (including .env.example, entrypoint.sh, etc.)
 COPY . .
 
-# Define versions (you can override via build args)
-ARG LAVALINK_VERSION=3.7.5
-ARG YOUTUBE_PLUGIN_VERSION=1.6.0
+# Define Lavalink version (can be overridden via build‑arg)
+ARG LAVALINK_VERSION=4.1.1
+ARG YOUTUBE_PLUGIN_VERSION=1.16.0
 
-# Create directories for Lavalink
+# Create directories for Lavalink files
 RUN mkdir -p /opt/lavalink/plugins
 
 # Download Lavalink JAR
@@ -25,17 +27,20 @@ RUN curl -L -o /opt/lavalink/Lavalink.jar \
 RUN curl -L -o /opt/lavalink/plugins/youtube-plugin.jar \
     https://github.com/lavalink-devs/youtube-source/releases/download/${YOUTUBE_PLUGIN_VERSION}/youtube-plugin.jar
 
-# Copy application.yml (ensure it exists in repo)
+# Copy Lavalink configuration (ensure this file exists in the repo)
 COPY lavalink/application.yml /opt/lavalink/application.yml
 
-# Copy entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy and make entrypoint script executable (it's in the WORKDIR from COPY . .)
+RUN chmod +x /usr/src/app/entrypoint.sh
 
-# Expose Lavalink port (optional)
+# Expose Lavalink port (internal use only)
 EXPOSE 2333
 
-# Set working directory for the bot
+# Default host for the bot to connect to Lavalink (IPv4 localhost)
+ENV LAVALINK_HOST=127.0.0.1
+
+# Set working directory for the bot (already set above, but keep for clarity)
 WORKDIR /usr/src/app
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Start both services (Lavalink → bot)
+ENTRYPOINT ["/usr/src/app/entrypoint.sh"]
