@@ -8,8 +8,10 @@ elif [ -f /opt/lavalink/cookies.txt ]; then
     echo "Using existing cookies.txt file..."
 fi
 
-# Start Lavalink in background with explicit config file path
-java -jar /opt/lavalink/Lavalink.jar --spring.config.location=/opt/lavalink/application.yml &
+# Start Lavalink in background with config import (Lavalink v4 / Spring Boot 3.x)
+cd /opt/lavalink
+java -jar Lavalink.jar &
+cd /usr/src/app
 # Give Lavalink a moment to start up
 sleep 15
 
