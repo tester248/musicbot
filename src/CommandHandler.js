@@ -81,9 +81,27 @@ class CommandHandler {
 
                 player.on('start', () => console.log('Track started'));
                 player.on('end', () => this.queueManager.playNext(guild.id));
-                player.on('exception', (err) => {
+                player.on('exception', async (err) => {
                     console.error('Track exception:', err);
-                    this.queueManager.playNext(guild.id);
+
+                    const queue = this.queueManager.getQueue(guild.id);
+                    const failedSong = queue.currentSong;
+
+                    // Check if we should retry with YouTube (max 4 attempts for 4 clients)
+                    if (failedSong && failedSong.retryCount < 4) {
+                        console.log(`🔄 YouTube playback failed (attempt ${failedSong.retryCount + 1}/4), retrying...`);
+                        failedSong.retryCount++;
+                        // Re-add to front of queue for retry
+                        queue.songs.unshift(failedSong);
+                        await this.queueManager.playNext(guild.id);
+                    } else if (failedSong && failedSong.originalQuery) {
+                        // All YouTube clients failed, try fallback
+                        console.log(`❌ All YouTube clients failed for "${failedSong.title}", trying fallback...`);
+                        await this.handlePlaybackFallback(guild.id, failedSong.originalQuery, failedSong.requester);
+                    } else {
+                        // No retry possible, skip to next
+                        await this.queueManager.playNext(guild.id);
+                    }
                 });
 
                 queue.player = player;
@@ -94,7 +112,7 @@ class CommandHandler {
             }
         }
 
-        this.queueManager.addSongs(guild.id, tracks, member.user, this.musicPlayer.formatDuration.bind(this.musicPlayer));
+        this.queueManager.addSongs(guild.id, tracks, member.user, this.musicPlayer.formatDuration.bind(this.musicPlayer), query);
 
         if (!queue.playing) {
             this.queueManager.playNext(guild.id);
@@ -360,6 +378,48 @@ class CommandHandler {
             const reply = '❌ Error fetching lyrics!';
             return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
         }
+    }
+
+    async handlePlaybackFallback(guildId, originalQuery, requester) {
+        const node = this.shoukaku.options.nodeResolver(this.shoukaku.nodes);
+        if (!node) {
+            console.log('❌ No Lavalink node available for fallback');
+            await this.queueManager.playNext(guildId);
+            return;
+        }
+
+        const queue = this.queueManager.getQueue(guildId);
+
+        // Try Spotify search
+        try {
+            console.log(`🔍 Searching Spotify for: ${originalQuery}`);
+            const spotifyResults = await this.spotify.searchTracks(originalQuery, { limit: 1 });
+
+            if (spotifyResults.body.tracks.items.length > 0) {
+                const track = spotifyResults.body.tracks.items[0];
+                const spotifyQuery = `${track.name} ${track.artists[0].name}`;
+
+                // Try SoundCloud with Spotify metadata
+                console.log(`🔍 Trying SoundCloud: ${spotifyQuery}`);
+                const result = await node.rest.resolve(`scsearch:${spotifyQuery}`);
+
+                if (result && result.loadType === 'search' && result.data.length > 0) {
+                    const scTrack = result.data[0];
+                    console.log(`✅ Found on SoundCloud: ${scTrack.info.title}`);
+
+                    // Add to queue and play
+                    this.queueManager.addSongs(guildId, [scTrack], requester, this.musicPlayer.formatDuration.bind(this.musicPlayer), originalQuery);
+                    await this.queueManager.playNext(guildId);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('Fallback failed:', error);
+        }
+
+        // All fallbacks failed, skip to next song
+        console.log(`❌ All fallback attempts failed for "${originalQuery}", skipping...`);
+        await this.queueManager.playNext(guildId);
     }
 }
 

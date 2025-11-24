@@ -19,7 +19,7 @@ class QueueManager {
         return this.queues.get(guildId);
     }
 
-    addSongs(guildId, tracks, requester, formatDuration) {
+    addSongs(guildId, tracks, requester, formatDuration, originalQuery = null) {
         const queue = this.getQueue(guildId);
 
         for (const track of tracks) {
@@ -29,7 +29,10 @@ class QueueManager {
                 duration: formatDuration(track.info.length / 1000),
                 thumbnail: track.info.artworkUrl || '',
                 requester: requester,
-                encoded: track.encoded
+                encoded: track.encoded,
+                originalQuery: originalQuery || track.info.title, // For fallback
+                retryCount: 0, // Track retry attempts
+                triedClients: [] // Track which YouTube clients failed
             });
         }
     }
