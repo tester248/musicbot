@@ -43,9 +43,9 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
-      - TVHTML5EMBEDDED
+      - ANDROID_VR
       - WEB
-      - ANDROID_TESTSUITE
+      - IOS
 
 metrics:
   prometheus:
