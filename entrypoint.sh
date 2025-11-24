@@ -1,18 +1,25 @@
 #!/bin/sh
 
+# Ensure /opt/lavalink directory exists
+mkdir -p /opt/lavalink
+
 # Write YouTube cookies if provided via env var (only if file doesn't already exist)
-if [ -n "$YOUTUBE_COOKIES" ] && [ ! -f /opt/lavalink/cookies.txt ]; then
-    echo "Creating cookies.txt from environment variable..."
-    
-    # Check if it's JSON format (starts with [ or {)
-    if echo "$YOUTUBE_COOKIES" | grep -q '^\s*[\[{]'; then
-        echo "Converting JSON cookies to Netscape format..."
+if [ -n "$YOUTUBE_COOKIES" ]; then
+    if [ -f /opt/lavalink/cookies.txt ]; then
+        echo "Using existing cookies.txt file..."
+    else
+        echo "Creating cookies.txt from environment variable..."
+        echo "Cookie length: ${#YOUTUBE_COOKIES} characters"
         
-        # Write JSON to temp file to avoid shell escaping issues
-        echo "$YOUTUBE_COOKIES" > /tmp/cookies.json
-        
-        # Use Node.js to convert JSON to Netscape format
-        node -e "
+        # Check if it's JSON format (starts with [ or {)
+        if echo "$YOUTUBE_COOKIES" | grep -q '^\s*[\[{]'; then
+            echo "Converting JSON cookies to Netscape format..."
+            
+            # Write JSON to temp file to avoid shell escaping issues
+            echo "$YOUTUBE_COOKIES" > /tmp/cookies.json
+            
+            # Use Node.js to convert JSON to Netscape format
+            node -e "
 const fs = require('fs');
 const cookies = JSON.parse(fs.readFileSync('/tmp/cookies.json', 'utf8'));
 console.log('# Netscape HTTP Cookie File');
@@ -28,16 +35,21 @@ cookieArray.forEach(c => {
     console.log(\`\${domain}\t\${flag}\t\${path}\t\${secure}\t\${expiry}\t\${name}\t\${value}\`);
 });
 " > /opt/lavalink/cookies.txt
+            
+            # Clean up temp file
+            rm -f /tmp/cookies.json
+            echo "Cookie conversion complete!"
+        else
+            # Assume it's already in Netscape format
+            echo "Writing Netscape format cookies directly..."
+            echo "$YOUTUBE_COOKIES" > /opt/lavalink/cookies.txt
+        fi
         
-        # Clean up temp file
-        rm -f /tmp/cookies.json
-        echo "Cookie conversion complete!"
-    else
-        # Assume it's already in Netscape format
-        echo "$YOUTUBE_COOKIES" > /opt/lavalink/cookies.txt
+        echo "Cookies file created at /opt/lavalink/cookies.txt"
+        ls -lh /opt/lavalink/cookies.txt
     fi
-elif [ -f /opt/lavalink/cookies.txt ]; then
-    echo "Using existing cookies.txt file..."
+else
+    echo "No YOUTUBE_COOKIES environment variable found"
 fi
 
 # Start Lavalink in background with config import (Lavalink v4 / Spring Boot 3.x)
