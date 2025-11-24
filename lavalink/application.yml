@@ -45,8 +45,7 @@ plugins:
     clients:
       - TVHTML5EMBEDDED
       - WEB
-    oauth:
-      enabled: true
+      - ANDROID_TESTSUITE
 
 metrics:
   prometheus:
