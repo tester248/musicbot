@@ -1,3 +1,8 @@
 node_modules/
-cookies.txt
 .env
+cookies.txt
+lavalink/Lavalink.jar
+lavalink/logs/
+lavalink/plugins/
+*.log
+.DS_Store

@@ -1,14 +1,14 @@
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus } = require('@discordjs/voice');
-const play = require('play-dl');
-const { Innertube, UniversalCache } = require('youtubei.js');
-const ytdl = require('@distube/ytdl-core');
-const SpotifyWebApi = require('spotify-web-api-node');
-const Genius = require("genius-lyrics");
-const GeniusClient = new Genius.Client();
-const fs = require('fs');
-const sodium = require('libsodium-wrappers');
 require('dotenv').config();
+const { Client, GatewayIntentBits, Collection, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActivityType } = require('discord.js');
+const { Shoukaku, Connectors } = require('shoukaku');
+const SpotifyWebApi = require('spotify-web-api-node');
+const Genius = require('genius-lyrics');
+
+const Nodes = [{
+    name: 'Localhost',
+    url: 'localhost:2333',
+    auth: 'youshallnotpass'
+}];
 
 class MusicBot {
     constructor() {
@@ -22,74 +22,59 @@ class MusicBot {
         });
 
         this.queues = new Collection();
-        this.connections = new Collection();
-        this.players = new Collection();
-        this.youtube = null;
-
+        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes);
+        
         // Initialize Spotify API
         this.spotify = new SpotifyWebApi({
             clientId: process.env.SPOTIFY_CLIENT_ID,
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
         });
 
-        // Set access token for Spotify (client credentials flow)
-        this.initializeSpotify();
+        this.geniusClient = new Genius.Client();
+        
+        // Spotify Token Refresh
+        this.spotifyTokenTimer = null;
+        this.refreshSpotifyToken();
 
-        // Load cookies for YouTube
-        this.loadCookies();
-
-        this.setupEvents();
-        this.setupCommands();
+        this.setupShoukaku();
+        this.setupClient();
     }
 
-    async initializeSpotify() {
+    async refreshSpotifyToken() {
         try {
-            if (process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET) {
-                const data = await this.spotify.clientCredentialsGrant();
-                this.spotify.setAccessToken(data.body['access_token']);
-                console.log('✅ Spotify API initialized');
-            }
+            const data = await this.spotify.clientCredentialsGrant();
+            this.spotify.setAccessToken(data.body['access_token']);
+            // Refresh 1 minute before expiry
+            setTimeout(() => this.refreshSpotifyToken(), (data.body['expires_in'] - 60) * 1000);
+            console.log('✅ Spotify token refreshed');
         } catch (error) {
-            console.error('Failed to initialize Spotify API:', error);
+            console.error('❌ Spotify token refresh failed:', error);
+            // Retry in 30 seconds
+            setTimeout(() => this.refreshSpotifyToken(), 30000);
         }
     }
 
-    loadCookies() {
-        try {
-            if (fs.existsSync('./cookies.txt')) {
-                const cookieData = fs.readFileSync('./cookies.txt', 'utf8');
-                
-                try {
-                    // Try parsing as JSON first (new format)
-                    const cookieArray = JSON.parse(cookieData);
-                    if (Array.isArray(cookieArray)) {
-                        // Store both formats for different libraries
-                        this.cookieString = cookieArray.map(c => `${c.name}=${c.value}`).join('; ');
-                        this.cookieArray = cookieArray; // For new ytdl-core format
-                        console.log('✅ Loaded YouTube cookies (JSON format)');
-                    }
-                } catch (parseError) {
-                    // Fallback to old string format
-                    this.cookieString = cookieData.trim();
-                    console.log('✅ Loaded YouTube cookies (string format)');
-                }
-            }
-        } catch (error) {
-            console.error('Failed to load cookies:', error);
-        }
+    setupShoukaku() {
+        this.shoukaku.on('error', (_, error) => console.error('Shoukaku: Error', error));
+        this.shoukaku.on('close', (name, code, reason) => console.warn(`Shoukaku: Closed ${name} ${code} ${reason}`));
+        this.shoukaku.on('disconnect', (name, players, moved) => console.warn(`Shoukaku: Disconnected ${name} ${players} ${moved}`));
+        this.shoukaku.on('ready', (name) => console.log(`✅ Shoukaku: Node ${name} is ready`));
     }
 
-    setupEvents() {
-        this.client.once('ready', () => {
+    setupClient() {
+        this.client.on('ready', () => {
             console.log(`✅ Bot is ready! Logged in as ${this.client.user.tag}`);
+            this.client.user.setActivity('Music 🎵 | /play', { type: ActivityType.Listening });
             this.registerSlashCommands();
         });
 
         this.client.on('interactionCreate', async (interaction) => {
             if (!interaction.isChatInputCommand()) return;
 
+            const command = interaction.commandName;
+
             try {
-                switch (interaction.commandName) {
+                switch (command) {
                     case 'play':
                         await this.handlePlay(interaction, interaction.options.getString('query'));
                         break;
@@ -137,19 +122,89 @@ class MusicBot {
                         break;
                 }
             } catch (error) {
-                console.error('Slash command error:', error);
-                const reply = { content: '❌ An error occurred while executing the command.', ephemeral: true };
-                if (interaction.replied) {
-                    interaction.followUp(reply);
+                console.error('Interaction error:', error);
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
                 } else {
-                    interaction.reply(reply);
+                    await interaction.editReply('❌ An error occurred!');
                 }
             }
         });
-    }
 
-    async setupCommands() {
-        // Commands are registered in registerSlashCommands()
+        // Prefix command handler
+        this.client.on('messageCreate', async (message) => {
+            if (message.author.bot) return;
+            const prefix = process.env.PREFIX || '!';
+            if (!message.content.startsWith(prefix)) return;
+
+            const args = message.content.slice(prefix.length).trim().split(/ +/);
+            const command = args.shift().toLowerCase();
+
+            try {
+                switch (command) {
+                    case 'play':
+                    case 'p':
+                        await this.handlePlay(message, args.join(' '));
+                        break;
+                    case 'skip':
+                    case 's':
+                        await this.handleSkip(message);
+                        break;
+                    case 'stop':
+                        await this.handleStop(message);
+                        break;
+                    case 'pause':
+                        await this.handlePause(message);
+                        break;
+                    case 'resume':
+                    case 'r':
+                        await this.handleResume(message);
+                        break;
+                    case 'queue':
+                    case 'q':
+                        await this.handleQueue(message);
+                        break;
+                    case 'nowplaying':
+                    case 'np':
+                        await this.handleNowPlaying(message);
+                        break;
+                    case 'volume':
+                    case 'vol':
+                    case 'v':
+                        await this.handleVolume(message, parseInt(args[0]));
+                        break;
+                    case 'join':
+                    case 'j':
+                        await this.handleJoin(message);
+                        break;
+                    case 'leave':
+                    case 'l':
+                    case 'dc':
+                        await this.handleLeave(message);
+                        break;
+                    case 'clear':
+                    case 'c':
+                        await this.handleClear(message);
+                        break;
+                    case 'shuffle':
+                        await this.handleShuffle(message);
+                        break;
+                    case 'loop':
+                        await this.handleLoop(message, args[0]);
+                        break;
+                    case 'seek':
+                        await this.handleSeek(message, parseInt(args[0]));
+                        break;
+                    case 'lyrics':
+                    case 'ly':
+                        await this.handleLyrics(message, args.join(' '));
+                        break;
+                }
+            } catch (error) {
+                console.error('Prefix command error:', error);
+                message.reply('❌ An error occurred while executing the command.');
+            }
+        });
     }
 
     async registerSlashCommands() {
@@ -231,6 +286,7 @@ class MusicBot {
 
         try {
             console.log('🔄 Registering slash commands...');
+            await this.client.application.commands.set([]);
             await this.client.application.commands.set(commands);
             console.log('✅ Slash commands registered successfully!');
         } catch (error) {
@@ -242,81 +298,18 @@ class MusicBot {
         if (!this.queues.has(guildId)) {
             this.queues.set(guildId, {
                 songs: [],
-                playing: false,
                 currentSong: null,
-                loopMode: 0, // 0: Off, 1: Track, 2: Queue
-                volume: parseInt(process.env.DEFAULT_VOLUME) || 50
+                playing: false,
+                loopMode: 0, // 0: off, 1: track, 2: queue
+                volume: parseInt(process.env.DEFAULT_VOLUME) || 100,
+                player: null
             });
         }
         return this.queues.get(guildId);
     }
 
-    async searchSong(query) {
-        try {
-            // Check if it's a Spotify URL
-            if (query.includes('spotify.com')) {
-                return await this.handleSpotifyUrl(query);
-            }
-
-            // Check if it's a YouTube URL
-            if (query.includes('youtube.com') || query.includes('youtu.be')) {
-                const info = await play.video_info(query);
-                return {
-                    title: info.video_details.title,
-                    url: info.video_details.url,
-                    duration: this.formatDuration(info.video_details.durationInSec),
-                    thumbnail: info.video_details.thumbnails[0]?.url,
-                    uploader: info.video_details.channel?.name
-                };
-            }
-
-            // Search YouTube
-            const searched = await play.search(query, { limit: 1 });
-            if (searched.length === 0) return null;
-
-            const video = searched[0];
-            return {
-                title: video.title,
-                url: video.url,
-                duration: this.formatDuration(video.durationInSec),
-                thumbnail: video.thumbnails[0]?.url,
-                uploader: video.channel?.name
-            };
-        } catch (error) {
-            console.error('Search error:', error);
-            return null;
-        }
-    }
-
-    async handleSpotifyUrl(url) {
-        try {
-            const trackId = url.match(/track\/([a-zA-Z0-9]+)/)?.[1];
-            if (!trackId) return null;
-
-            const track = await this.spotify.getTrack(trackId);
-            const searchQuery = `${track.body.artists[0].name} ${track.body.name}`;
-            
-            // Search for the track on YouTube
-            const searched = await play.search(searchQuery, { limit: 1 });
-            if (searched.length === 0) return null;
-
-            const video = searched[0];
-            return {
-                title: `${track.body.artists[0].name} - ${track.body.name}`,
-                url: video.url,
-                duration: this.formatDuration(video.durationInSec),
-                thumbnail: track.body.album.images[0]?.url,
-                uploader: track.body.artists[0].name,
-                spotify: true
-            };
-        } catch (error) {
-            console.error('Spotify error:', error);
-            return null;
-        }
-    }
-
     async handlePlay(interaction, query) {
-        const isSlash = interaction.isChatInputCommand();
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
         const member = interaction.member;
         const guild = interaction.guild;
 
@@ -330,63 +323,164 @@ class MusicBot {
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        const msg = isSlash ? await interaction.deferReply() : null;
+        if (isSlash) await interaction.deferReply();
 
-        const song = await this.searchSong(query);
-        if (!song) {
-            const reply = '❌ Could not find that song!';
+        const node = this.shoukaku.options.nodeResolver(this.shoukaku.nodes);
+        if (!node) {
+            const reply = '❌ No Lavalink node available!';
+            return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+        }
+
+        let tracks = [];
+        let playlistName = null;
+        let isUrl = query.startsWith('http');
+
+        // Spotify handling
+        if (query.includes('spotify.com')) {
+            try {
+                const url = new URL(query);
+                const pathParts = url.pathname.split('/');
+                // Handle different spotify URL formats
+                // https://open.spotify.com/track/ID
+                // https://open.spotify.com/intl-pt/track/ID
+                let id = pathParts[pathParts.length - 1];
+                let type = pathParts[pathParts.length - 2];
+                
+                // Basic cleanup for ID (remove query params if any remain after URL parsing)
+                if (id.includes('?')) id = id.split('?')[0];
+
+                if (type === 'track') {
+                    const data = await this.spotify.getTrack(id);
+                    const track = data.body;
+                    query = `${track.name} ${track.artists[0].name}`;
+                    isUrl = false; // Convert to search query
+                } else if (type === 'playlist') {
+                    const data = await this.spotify.getPlaylist(id);
+                    const playlist = data.body;
+                    playlistName = playlist.name;
+                    
+                    // For now, just play the first track to avoid complex queueing logic in this simple implementation
+                    // A full implementation would map all tracks to YouTube searches
+                    if (playlist.tracks.items.length > 0) {
+                        const item = playlist.tracks.items[0];
+                        if (item.track) {
+                            query = `${item.track.name} ${item.track.artists[0].name}`;
+                            isUrl = false;
+                        }
+                    } else {
+                         const reply = '❌ Playlist is empty!';
+                         return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+                    }
+                }
+            } catch (error) {
+                console.error('Spotify error:', error);
+                // Don't return error, let it try to resolve as URL or search as fallback
+            }
+        }
+
+        try {
+            const searchType = isUrl ? '' : (query.startsWith('scsearch:') ? '' : 'ytsearch:');
+            const result = await node.rest.resolve(isUrl ? query : `${searchType}${query}`);
+            
+            if (!result || result.loadType === 'empty') {
+                const reply = '❌ No results found!';
+                return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+            }
+
+            if (result.loadType === 'playlist') {
+                tracks = result.data.tracks;
+                playlistName = result.data.info.name;
+            } else if (result.loadType === 'track') {
+                tracks = [result.data];
+            } else if (result.loadType === 'search') {
+                // Only take the first search result
+                tracks = result.data && result.data.length > 0 ? [result.data[0]] : [];
+            } else if (result.loadType === 'error') {
+                console.error('Lavalink error:', result.data);
+                const reply = `❌ Error: ${result.data.message || 'Failed to load track'}`;
+                return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+            } else {
+                console.error('Unknown loadType:', result.loadType);
+                tracks = Array.isArray(result.data) ? result.data : [result.data];
+            }
+        } catch (err) {
+            console.error('Lavalink resolve error:', err);
+            const reply = '❌ Error searching for song!';
+            return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+        }
+
+        if (!tracks || tracks.length === 0) {
+            const reply = '❌ No tracks found!';
             return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
         }
 
         const queue = this.getQueue(guild.id);
-        song.requester = member.user;
 
-        // Join voice channel if not connected
-        if (!this.connections.has(guild.id)) {
-            const connection = joinVoiceChannel({
-                channelId: member.voice.channel.id,
-                guildId: guild.id,
-                adapterCreator: guild.voiceAdapterCreator,
-            });
+        // Join voice channel if needed
+        if (!queue.player) {
+            try {
+                const player = await this.shoukaku.joinVoiceChannel({
+                    guildId: guild.id,
+                    channelId: member.voice.channel.id,
+                    shardId: 0 // Assuming single shard
+                });
 
-            this.connections.set(guild.id, connection);
-            
-            const player = createAudioPlayer();
-            this.players.set(guild.id, player);
-            
-            connection.subscribe(player);
+                player.on('start', () => {
+                    console.log('Track started');
+                });
 
-            player.on(AudioPlayerStatus.Idle, () => {
-                this.playNext(guild.id);
-            });
-
-            player.on('error', error => {
-                console.error('Player error:', error);
-                const queue = this.getQueue(guild.id);
-                if (queue.currentSong && error.message && error.message.includes('Sign in')) {
-                    console.log('🔄 Retrying with different streaming method...');
-                    this.playStreamWithRetry(guild.id, queue.currentSong, 0, 1);
-                } else {
+                player.on('end', () => {
                     this.playNext(guild.id);
-                }
+                });
+
+                player.on('exception', (err) => {
+                    console.error('Track exception:', err);
+                    this.playNext(guild.id);
+                });
+
+                queue.player = player;
+            } catch (e) {
+                console.error('Failed to join voice:', e);
+                const reply = '❌ Failed to join voice channel!';
+                return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+            }
+        }
+
+        // Add tracks to queue
+        for (const track of tracks) {
+            queue.songs.push({
+                title: track.info.title,
+                url: track.info.uri,
+                duration: this.formatDuration(track.info.length / 1000),
+                thumbnail: track.info.artworkUrl || '',
+                requester: member.user,
+                encoded: track.encoded
             });
         }
 
-        queue.songs.push(song);
-
-        const embed = new EmbedBuilder()
-            .setColor('#00ff00')
-            .setTitle('🎵 Added to Queue')
-            .setDescription(`**${song.title}**`)
-            .addFields(
-                { name: 'Duration', value: song.duration, inline: true },
-                { name: 'Position', value: `${queue.songs.length}`, inline: true },
-                { name: 'Requested by', value: song.requester.toString(), inline: true }
-            )
-            .setThumbnail(song.thumbnail);
-
         if (!queue.playing) {
             this.playNext(guild.id);
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00');
+
+        if (playlistName) {
+            embed.setTitle(`🎵 Added Playlist: ${playlistName}`)
+                .setDescription(`Added **${tracks.length}** songs to queue.`);
+        } else {
+            const song = queue.songs[queue.songs.length - tracks.length]; // Get the first added song
+            if (song) {
+                embed.setTitle('🎵 Added to Queue')
+                    .setDescription(`**${song.title}**`)
+                    .addFields(
+                        { name: 'Duration', value: song.duration, inline: true },
+                        { name: 'Requested by', value: song.requester.toString(), inline: true }
+                    );
+            } else {
+                embed.setTitle('🎵 Added to Queue')
+                    .setDescription(`Added **${tracks.length}** song(s) to queue.`);
+            }
         }
 
         const reply = { embeds: [embed] };
@@ -395,13 +489,10 @@ class MusicBot {
 
     async playNext(guildId) {
         const queue = this.getQueue(guildId);
-        const player = this.players.get(guildId);
 
-        // Handle Loop Track
         if (queue.loopMode === 1 && queue.currentSong) {
-            // Keep current song
+            // Loop track - do nothing, just replay
         } else {
-            // Handle Loop Queue
             if (queue.loopMode === 2 && queue.currentSong) {
                 queue.songs.push(queue.currentSong);
             }
@@ -409,88 +500,84 @@ class MusicBot {
             if (queue.songs.length === 0) {
                 queue.playing = false;
                 queue.currentSong = null;
+                // Optional: Leave channel after timeout
                 return;
             }
 
-            const song = queue.songs.shift();
-            queue.currentSong = song;
+            queue.currentSong = queue.songs.shift();
         }
 
         queue.playing = true;
         const song = queue.currentSong;
 
-        await this.playStreamWithRetry(guildId, song, 0);
+        if (queue.player) {
+            await queue.player.playTrack({ track: { encoded: song.encoded } });
+            // Shoukaku uses filters for volume control
+            await queue.player.setFilters({ volume: queue.volume / 100 });
+        }
     }
 
     async handleSkip(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const player = this.players.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!player) {
+        if (!queue.player) {
             const reply = '❌ Nothing is playing!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        player.stop();
+        queue.player.stopTrack();
         const reply = '⏭️ Skipped!';
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleStop(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
-        const player = this.players.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!player) {
-            const reply = '❌ Nothing is playing!';
-            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        if (queue.player) {
+            queue.songs = [];
+            queue.playing = false;
+            queue.currentSong = null;
+            queue.player.stopTrack();
+            // shoukaku.leaveVoiceChannel(guildId) if you want to leave
         }
-
-        queue.songs = [];
-        queue.playing = false;
-        queue.currentSong = null;
-        player.stop();
 
         const reply = '⏹️ Stopped and cleared queue!';
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handlePause(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const player = this.players.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!player) {
+        if (queue.player) {
+            queue.player.setPaused(true);
+            const reply = '⏸️ Paused!';
+            isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        } else {
             const reply = '❌ Nothing is playing!';
-            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+            isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
-
-        player.pause();
-        const reply = '⏸️ Paused!';
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleResume(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const player = this.players.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!player) {
+        if (queue.player) {
+            queue.player.setPaused(false);
+            const reply = '▶️ Resumed!';
+            isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        } else {
             const reply = '❌ Nothing is playing!';
-            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+            isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
-
-        player.unpause();
-        const reply = '▶️ Resumed!';
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleQueue(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
         if (!queue.currentSong && queue.songs.length === 0) {
             const reply = '❌ Queue is empty!';
@@ -499,30 +586,20 @@ class MusicBot {
 
         const embed = new EmbedBuilder()
             .setColor('#0099ff')
-            .setTitle('🎵 Music Queue');
+            .setTitle('🎶 Music Queue');
 
         if (queue.currentSong) {
-            embed.addFields({
-                name: 'Now Playing',
-                value: `**${queue.currentSong.title}** - ${queue.currentSong.requester}`,
-                inline: false
-            });
+            embed.addFields({ name: 'Now Playing', value: `**${queue.currentSong.title}** | Requested by: ${queue.currentSong.requester}` });
         }
 
         if (queue.songs.length > 0) {
-            const upcoming = queue.songs.slice(0, 10).map((song, index) => 
-                `${index + 1}. **${song.title}** - ${song.requester}`
-            ).join('\n');
+            const queueList = queue.songs.slice(0, 10).map((song, index) => {
+                return `${index + 1}. **${song.title}** (${song.duration})`;
+            }).join('\n');
 
-            embed.addFields({
-                name: 'Up Next',
-                value: upcoming,
-                inline: false
-            });
-
-            if (queue.songs.length > 10) {
-                embed.setFooter({ text: `...and ${queue.songs.length - 10} more songs` });
-            }
+            embed.setDescription(`**Up Next:**\n${queueList}${queue.songs.length > 10 ? `\n...and ${queue.songs.length - 10} more` : ''}`);
+        } else {
+            embed.setDescription('No more songs in queue.');
         }
 
         const reply = { embeds: [embed] };
@@ -530,9 +607,8 @@ class MusicBot {
     }
 
     async handleNowPlaying(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
         if (!queue.currentSong) {
             const reply = '❌ Nothing is playing!';
@@ -541,17 +617,16 @@ class MusicBot {
 
         const song = queue.currentSong;
         const embed = new EmbedBuilder()
-            .setColor('#00ff00')
-            .setTitle('🎵 Now Playing')
+            .setColor('#0099ff')
+            .setTitle('🎶 Now Playing')
             .setDescription(`**${song.title}**`)
             .addFields(
                 { name: 'Duration', value: song.duration, inline: true },
                 { name: 'Requested by', value: song.requester.toString(), inline: true }
-            )
-            .setThumbnail(song.thumbnail);
+            );
 
-        if (song.uploader) {
-            embed.addFields({ name: 'Uploader', value: song.uploader, inline: true });
+        if (song.thumbnail) {
+            embed.setThumbnail(song.thumbnail);
         }
 
         const reply = { embeds: [embed] };
@@ -559,15 +634,8 @@ class MusicBot {
     }
 
     async handleVolume(interaction, level) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
-        const player = this.players.get(guild.id);
-
-        if (level === undefined || level === null) {
-            const reply = `🔊 Current volume: ${queue.volume}%`;
-            return isSlash ? interaction.reply(reply) : interaction.reply(reply);
-        }
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
         if (level < 0 || level > 100) {
             const reply = '❌ Volume must be between 0 and 100!';
@@ -575,9 +643,8 @@ class MusicBot {
         }
 
         queue.volume = level;
-
-        if (player && player.state.resource && player.state.resource.volume) {
-            player.state.resource.volume.setVolume(level / 100);
+        if (queue.player) {
+            await queue.player.setFilters({ volume: level / 100 });
         }
 
         const reply = `🔊 Volume set to ${level}%`;
@@ -585,7 +652,7 @@ class MusicBot {
     }
 
     async handleJoin(interaction) {
-        const isSlash = interaction.isChatInputCommand();
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
         const member = interaction.member;
         const guild = interaction.guild;
 
@@ -594,45 +661,61 @@ class MusicBot {
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        const connection = joinVoiceChannel({
-            channelId: member.voice.channel.id,
-            guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
-        });
+        const queue = this.getQueue(guild.id);
+        if (!queue.player) {
+            try {
+                const player = await this.shoukaku.joinVoiceChannel({
+                    guildId: guild.id,
+                    channelId: member.voice.channel.id,
+                    shardId: 0
+                });
 
-        this.connections.set(guild.id, connection);
-        
-        const player = createAudioPlayer();
-        this.players.set(guild.id, player);
-        connection.subscribe(player);
+                player.on('start', () => {
+                    console.log('Track started');
+                });
 
-        const reply = `✅ Joined ${member.voice.channel.name}`;
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
+                player.on('end', () => {
+                    this.playNext(guild.id);
+                });
+
+                player.on('exception', (err) => {
+                    console.error('Track exception:', err);
+                    this.playNext(guild.id);
+                });
+
+                queue.player = player;
+                const reply = `✅ Joined ${member.voice.channel.name}!`;
+                isSlash ? interaction.reply(reply) : interaction.reply(reply);
+            } catch (e) {
+                console.error('Failed to join voice:', e);
+                const reply = '❌ Failed to join voice channel!';
+                isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+            }
+        } else {
+            const reply = '✅ Already connected!';
+            isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        }
     }
 
     async handleLeave(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const connection = this.connections.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!connection) {
-            const reply = '❌ Not connected to a voice channel!';
-            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        if (queue.player) {
+            queue.songs = [];
+            queue.playing = false;
+            queue.currentSong = null;
+            this.shoukaku.leaveVoiceChannel(interaction.guild.id);
+            queue.player = null;
         }
-
-        connection.destroy();
-        this.connections.delete(guild.id);
-        this.players.delete(guild.id);
-        this.queues.delete(guild.id);
 
         const reply = '👋 Left the voice channel!';
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleClear(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
         queue.songs = [];
         const reply = '🗑️ Queue cleared!';
@@ -640,16 +723,14 @@ class MusicBot {
     }
 
     async handleShuffle(interaction) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (queue.songs.length === 0) {
-            const reply = '❌ Queue is empty!';
+        if (queue.songs.length < 2) {
+            const reply = '❌ Not enough songs to shuffle!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        // Fisher-Yates shuffle
         for (let i = queue.songs.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [queue.songs[i], queue.songs[j]] = [queue.songs[j], queue.songs[i]];
@@ -660,292 +741,89 @@ class MusicBot {
     }
 
     async handleLoop(interaction, mode) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!mode) {
-            const modes = ['Off', 'Track', 'Queue'];
-            const reply = `🔁 Current loop mode: **${modes[queue.loopMode]}**`;
-            return isSlash ? interaction.reply(reply) : interaction.reply(reply);
-        }
-
-        switch (mode.toLowerCase()) {
+        switch (mode) {
             case 'off':
                 queue.loopMode = 0;
                 break;
             case 'track':
-            case 'song':
                 queue.loopMode = 1;
                 break;
             case 'queue':
                 queue.loopMode = 2;
                 break;
-            default: {
-                const reply = '❌ Invalid mode! Use: off, track, queue';
-                return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
-            }
         }
 
-        const modes = ['Off', 'Track', 'Queue'];
-        const reply = `🔁 Loop mode set to: **${modes[queue.loopMode]}**`;
+        const reply = `🔁 Loop mode set to: **${mode}**`;
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleSeek(interaction, seconds) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
-        const player = this.players.get(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!queue.currentSong) {
+        if (!queue.player) {
             const reply = '❌ Nothing is playing!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        if (!seconds && seconds !== 0) {
-             const reply = '❌ Please provide time in seconds!';
-             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
-        }
-        
-        seconds = parseInt(seconds);
-
-        await this.playStreamWithRetry(guild.id, queue.currentSong, seconds);
-        
-        const reply = `⏩ Seeked to ${this.formatDuration(seconds)}!`;
+        // Shoukaku seek is in milliseconds
+        await queue.player.seekTo(seconds * 1000);
+        const reply = `⏩ Seeked to ${seconds} seconds!`;
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handleLyrics(interaction, query) {
-        const isSlash = interaction.isChatInputCommand();
-        const guild = interaction.guild;
-        const queue = this.getQueue(guild.id);
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        const queue = this.getQueue(interaction.guild.id);
 
-        if (!query && queue.currentSong) {
-            // Clean up title for better search results (remove (Official Video) etc)
-            query = queue.currentSong.title.replace(/[([].*?(official|video|audio|lyrics|lyric).*?[)\]]/gi, '').trim();
-        }
-
-        if (!query) {
-            const reply = '❌ Please provide a song name or play a song!';
+        if (!query && !queue.currentSong) {
+            const reply = '❌ Please provide a song name!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
+
+        const searchQuery = query || queue.currentSong.title;
 
         if (isSlash) await interaction.deferReply();
 
         try {
-            const searches = await GeniusClient.songs.search(query);
-            
-            if (searches.length === 0) {
-                const reply = '❌ No lyrics found!';
+            const searches = await this.geniusClient.songs.search(searchQuery);
+            const firstSong = searches[0];
+
+            if (!firstSong) {
+                const reply = '❌ Lyrics not found!';
                 return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
             }
 
-            const song = searches[0];
-            const lyrics = await song.lyrics();
-            
-            if (!lyrics) {
-                 const reply = '❌ No lyrics found!';
-                 return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
-            }
-
+            const lyrics = await firstSong.lyrics();
             const embed = new EmbedBuilder()
-                .setTitle(`Lyrics for ${song.title}`)
-                .setURL(song.url)
-                .setThumbnail(song.thumbnail)
-                .setColor('#FFFF00')
+                .setTitle(`Lyrics for ${firstSong.title}`)
                 .setDescription(lyrics.length > 4096 ? lyrics.substring(0, 4093) + '...' : lyrics)
-                .setFooter({ text: `Lyrics provided by Genius` });
-                
+                .setColor('#00ff00')
+                .setFooter({ text: 'Powered by Genius' });
+
             const reply = { embeds: [embed] };
             isSlash ? interaction.editReply(reply) : interaction.reply(reply);
-
         } catch (error) {
             console.error('Lyrics error:', error);
             const reply = '❌ Error fetching lyrics!';
-            isSlash ? interaction.editReply(reply) : interaction.reply(reply);
-        }
-    }
-
-    async playStreamWithRetry(guildId, song, seek = 0, retryCount = 0) {
-        const maxRetries = 3;
-        const baseDelay = 1000; // 1 second
-
-        try {
-            await this.playStream(guildId, song, seek);
-        } catch (error) {
-            console.error(`Play stream error (attempt ${retryCount + 1}):`, error);
-            
-            if (retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff
-                console.log(`🔄 Retrying in ${delay}ms... (${retryCount + 1}/${maxRetries})`);
-                
-                setTimeout(() => {
-                    this.playStreamWithRetry(guildId, song, seek, retryCount + 1);
-                }, delay);
-            } else {
-                console.error('❌ All retry attempts failed, skipping to next song');
-                if (seek === 0) this.playNext(guildId);
-            }
-        }
-    }
-
-    async playStream(guildId, song, seek = 0) {
-        const queue = this.getQueue(guildId);
-        const player = this.players.get(guildId);
-
-        if (!song || !song.url) {
-            console.error('Invalid song object:', song);
-            this.playNext(guildId);
-            return;
-        }
-
-        console.log(`Attempting to play: ${song.title} (${song.url})`);
-
-        let stream = null;
-        let inputType = undefined;
-
-        // Primary: play-dl
-        try {
-            const pdlStream = await play.stream(song.url, { seek: seek });
-            stream = pdlStream.stream;
-            inputType = pdlStream.type;
-            console.log('Using play-dl stream');
-        } catch (pErr) {
-            console.warn('play-dl failed:', pErr?.message || pErr);
-
-            // Fallback 1: youtubei (Innertube) - prioritized for better bot detection resistance
-            if (this.youtube) {
-                try {
-                    const match = song.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-                    const videoId = match ? match[1] : null;
-                    if (!videoId) throw new Error('Could not extract video id');
-
-                    const info = await this.youtube.getBasicInfo(videoId);
-                    console.log('youtubei.getBasicInfo keys:', Object.keys(info));
-                    const formatsList = info.formats || info.streaming_data?.formats || info.streamingData?.formats || [];
-                    console.log('youtubei formats count:', formatsList.length);
-
-                    // Prefer direct URL formats
-                    const usableFormat = Array.isArray(formatsList) ? formatsList.find(f => typeof f.url === 'string' && f.url.length) : undefined;
-                    if (usableFormat) {
-                        stream = usableFormat.url;
-                        console.log('Using direct format.url from youtubei');
-                    }
-
-                    // server_abr_streaming_url fallback
-                    if (!stream && info.streaming_data && info.streaming_data.server_abr_streaming_url) {
-                        stream = info.streaming_data.server_abr_streaming_url;
-                        console.log('Using server_abr_streaming_url fallback from youtubei');
-                    }
-
-                    // Try chooseFormat->decipher if still no stream
-                    if (!stream) {
-                        const chosen = info.chooseFormat ? info.chooseFormat({ type: 'audio', quality: 'best' }) : null;
-                        if (chosen) {
-                            try {
-                                const deciphered = chosen.url || (typeof chosen.decipher === 'function' ? chosen.decipher(this.youtube.session?.player) : undefined);
-                                if (deciphered) {
-                                    stream = deciphered;
-                                    console.log('Using deciphered url from youtubei chosen format');
-                                }
-                            } catch (decErr) {
-                                console.warn('youtubei chosen format decipher failed:', decErr?.message || decErr);
-                            }
-                        }
-                    }
-
-                    // Finally attempt download() if still nothing
-                    if (!stream) {
-                        try {
-                            const downloadStream = await this.youtube.download(videoId, { type: 'audio', quality: 'best', format: 'mp4' });
-                            stream = downloadStream;
-                            console.log('Using youtubei.download stream');
-                        } catch (dlErr) {
-                            console.warn('youtubei.download failed:', dlErr?.message || dlErr);
-                        }
-                    }
-                } catch (yiErr) {
-                    console.warn('youtubei fallback failed:', yiErr?.message || yiErr);
-                }
-            }
-
-            // Fallback 2: ytdl-core (@distube/ytdl-core) - last resort
-            if (!stream) {
-                try {
-                    const ytdlOptions = {
-                        filter: 'audioonly',
-                        highWaterMark: 1 << 25,
-                        dlChunkSize: 0
-                    };
-
-                    // Use new cookie format for ytdl-core
-                    if (this.cookieArray) {
-                        ytdlOptions.cookies = this.cookieArray;
-                    } else if (this.cookieString) {
-                        ytdlOptions.requestOptions = { headers: { Cookie: this.cookieString } };
-                    }
-
-                    stream = ytdl(song.url, ytdlOptions);
-                    console.log('Using @distube/ytdl-core final fallback stream');
-                } catch (yErr) {
-                    console.warn('ytdl-core final fallback failed:', yErr?.message || yErr);
-                }
-            }
-        }
-
-        // If still no stream available, nothing we can do
-        if (!stream) {
-            console.error('All stream fallbacks failed — skipping track');
-            if (seek === 0) this.playNext(guildId);
-            return;
-        }
-
-        try {
-            const resource = createAudioResource(stream, { inputType: inputType, inlineVolume: true });
-            resource.volume.setVolume(queue.volume / 100);
-            player.play(resource);
-
-            if (seek === 0) console.log(`🎵 Now playing: ${song.title}`);
-        } catch (error) {
-            console.error('Play error when creating resource or playing:', error);
-            
-            // If it's a "Sign in" error, the cookies might be invalid
-            if (error.message && error.message.includes('Sign in')) {
-                console.error('⚠️  YouTube is requiring sign-in. Your cookies might be expired or invalid.');
-                console.log('💡 Try updating your cookies.txt file with fresh YouTube cookies.');
-            }
-            
-            if (seek === 0) this.playNext(guildId);
+            return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
         }
     }
 
     formatDuration(seconds) {
         const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
+        const remainingSeconds = Math.floor(seconds % 60);
         return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 
-    async start() {
-        await sodium.ready;
-        
-        try {
-            this.youtube = await Innertube.create({
-                cache: new UniversalCache(false),
-                cookie: this.cookieString,
-                generate_session_locally: true
-            });
-            console.log('✅ YouTube.js (Innertube) initialized');
-        } catch (error) {
-            console.error('Failed to initialize YouTube.js:', error);
-        }
-
+    start() {
         this.client.login(process.env.DISCORD_TOKEN);
     }
 }
 
-// Initialize and start the bot
+// Start the bot
 const bot = new MusicBot();
 bot.start();
-
-console.log('🚀 Starting Discord Music Bot...');
