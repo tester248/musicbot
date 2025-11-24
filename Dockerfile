@@ -19,13 +19,13 @@ ARG YOUTUBE_PLUGIN_VERSION=1.16.0
 # Create directories for Lavalink files
 RUN mkdir -p /opt/lavalink/plugins
 
-# Download Lavalink JAR
-RUN curl -L -o /opt/lavalink/Lavalink.jar \
+# Download Lavalink JAR with retry and fail-on-error
+RUN curl -fSL --retry 3 --retry-delay 2 -o /opt/lavalink/Lavalink.jar \
     https://github.com/lavalink-devs/Lavalink/releases/download/${LAVALINK_VERSION}/Lavalink.jar
 
-# Download YouTube source plugin
-RUN curl -L -o /opt/lavalink/plugins/youtube-plugin.jar \
-    https://github.com/lavalink-devs/youtube-source/releases/download/${YOUTUBE_PLUGIN_VERSION}/youtube-plugin.jar
+# Download YouTube source plugin with retry and fail-on-error
+RUN curl -fSL --retry 3 --retry-delay 2 -o /opt/lavalink/plugins/youtube-plugin-${YOUTUBE_PLUGIN_VERSION}.jar \
+    https://github.com/lavalink-devs/youtube-source/releases/download/${YOUTUBE_PLUGIN_VERSION}/youtube-plugin-${YOUTUBE_PLUGIN_VERSION}.jar
 
 # Copy Lavalink configuration (ensure this file exists in the repo)
 COPY lavalink/application.yml /opt/lavalink/application.yml
