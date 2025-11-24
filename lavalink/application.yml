@@ -42,11 +42,18 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    # Try multiple clients for better success rate
     clients:
       - TVHTML5EMBEDDED
+      - ANDROID_VR
       - WEB
+      - IOS
+      - ANDROID_TESTSUITE
+      - MEDIA_CONNECT
     oauth:
       enabled: true
+      # Refresh token will be set via environment variable
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:-}"
 
 metrics:
   prometheus:
