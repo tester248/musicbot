@@ -20,6 +20,7 @@ class QueueManager {
     }
 
     addSongs(guildId, tracks, requester, formatDuration, originalQuery = null) {
+        console.log(`[DEBUG] addSongs called with originalQuery: ${originalQuery}`);
         const queue = this.getQueue(guildId);
 
         for (const track of tracks) {

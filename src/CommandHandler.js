@@ -86,6 +86,7 @@ class CommandHandler {
 
                     const queue = this.queueManager.getQueue(guild.id);
                     const failedSong = queue.currentSong;
+                    console.log('[DEBUG] Exception handler - failedSong:', JSON.stringify(failedSong, null, 2));
 
                     // Check if we should retry with YouTube (max 4 attempts for 4 clients)
                     if (failedSong && failedSong.retryCount < 4) {
