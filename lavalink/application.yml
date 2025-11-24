@@ -47,6 +47,10 @@ plugins:
       - ANDROID_VR
       - WEB
       - WEBEMBEDDED
+    oauth:
+      enabled: true
+      cookiesFromBrowser: null
+      cookieFilePath: "cookies.txt"
 
 metrics:
   prometheus:
