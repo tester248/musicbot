@@ -14,13 +14,15 @@ COPY . .
 ARG LAVALINK_VERSION=3.7.5
 ARG YOUTUBE_PLUGIN_VERSION=1.6.0
 
+# Create directories for Lavalink
+RUN mkdir -p /opt/lavalink/plugins
+
 # Download Lavalink JAR
 RUN curl -L -o /opt/lavalink/Lavalink.jar \
     https://github.com/lavalink-devs/Lavalink/releases/download/${LAVALINK_VERSION}/Lavalink.jar
 
 # Download YouTube source plugin
-RUN mkdir -p /opt/lavalink/plugins && \
-    curl -L -o /opt/lavalink/plugins/youtube-plugin.jar \
+RUN curl -L -o /opt/lavalink/plugins/youtube-plugin.jar \
     https://github.com/lavalink-devs/youtube-source/releases/download/${YOUTUBE_PLUGIN_VERSION}/youtube-plugin.jar
 
 # Copy application.yml (ensure it exists in repo)
