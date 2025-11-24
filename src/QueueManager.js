@@ -10,6 +10,7 @@ class QueueManager {
             this.queues.set(guildId, {
                 songs: [],
                 currentSong: null,
+                previousSong: null,
                 playing: false,
                 loopMode: 0, // 0: off, 1: track, 2: queue
                 volume: parseInt(process.env.DEFAULT_VOLUME) || 100,
@@ -40,6 +41,11 @@ class QueueManager {
 
     async playNext(guildId) {
         const queue = this.getQueue(guildId);
+
+        // Store current song as previous before changing it
+        if (queue.currentSong) {
+            queue.previousSong = queue.currentSong;
+        }
 
         if (queue.loopMode === 1 && queue.currentSong) {
             // Loop track - do nothing, just replay

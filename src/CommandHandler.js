@@ -85,18 +85,42 @@ class CommandHandler {
                     console.error('Track exception:', err);
 
                     const queue = this.queueManager.getQueue(guild.id);
-                    const failedSong = queue.currentSong;
-                    console.log('[DEBUG] Exception handler - failedSong:', JSON.stringify(failedSong, null, 2));
+                    // Try to get failed song from current or previous (if playNext already ran)
+                    let failedSong = queue.currentSong || queue.previousSong;
 
-                    // Check if we should retry with YouTube (max 4 attempts for 4 clients)
+                    console.log('[DEBUG] Exception handler - failedSong:', failedSong ? failedSong.title : 'null');
+
+                    // Check if we should retry with YouTube (max 4 attempts)
                     if (failedSong && failedSong.retryCount < 4) {
-                        console.log(`🔄 YouTube playback failed (attempt ${failedSong.retryCount + 1}/4), retrying...`);
-                        failedSong.retryCount++;
-                        // Re-add to front of queue for retry
-                        queue.songs.unshift(failedSong);
-                        await this.queueManager.playNext(guild.id);
-                    } else if (failedSong && failedSong.originalQuery) {
-                        // All YouTube clients failed, try fallback
+                        console.log(`🔄 YouTube playback failed (attempt ${failedSong.retryCount + 1}/4), re-resolving...`);
+
+                        try {
+                            // Re-resolve the track to get a fresh URL/client
+                            const searchType = failedSong.originalQuery.startsWith('http') ? '' : 'ytsearch:';
+                            const result = await node.rest.resolve(failedSong.originalQuery.startsWith('http') ? failedSong.originalQuery : `${searchType}${failedSong.originalQuery}`);
+
+                            if (result && result.data && (Array.isArray(result.data) ? result.data.length > 0 : result.data)) {
+                                const newTrack = Array.isArray(result.data) ? result.data[0] : result.data;
+                                failedSong.encoded = newTrack.encoded; // Update with new encoded string
+                                failedSong.retryCount++;
+
+                                // Re-add to front of queue
+                                queue.songs.unshift(failedSong);
+
+                                // Force playNext to take from queue (bypass loop mode for retry)
+                                queue.currentSong = null;
+                                queue.playing = false;
+
+                                await this.queueManager.playNext(guild.id);
+                                return;
+                            }
+                        } catch (resolveErr) {
+                            console.error('Re-resolve failed:', resolveErr);
+                        }
+                    }
+
+                    // If we get here, retry failed or max retries reached
+                    if (failedSong && failedSong.originalQuery) {
                         console.log(`❌ All YouTube clients failed for "${failedSong.title}", trying fallback...`);
                         await this.handlePlaybackFallback(guild.id, failedSong.originalQuery, failedSong.requester);
                     } else {
