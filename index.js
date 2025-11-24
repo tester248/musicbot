@@ -6,7 +6,7 @@ const Genius = require('genius-lyrics');
 
 const Nodes = [{
     name: 'Localhost',
-    url: 'localhost:2333',
+    url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
     auth: 'youshallnotpass'
 }];
 
@@ -23,7 +23,7 @@ class MusicBot {
 
         this.queues = new Collection();
         this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes);
-        
+
         // Initialize Spotify API
         this.spotify = new SpotifyWebApi({
             clientId: process.env.SPOTIFY_CLIENT_ID,
@@ -31,7 +31,7 @@ class MusicBot {
         });
 
         this.geniusClient = new Genius.Client();
-        
+
         // Spotify Token Refresh
         this.spotifyTokenTimer = null;
         this.refreshSpotifyToken();
@@ -340,27 +340,21 @@ class MusicBot {
             try {
                 const url = new URL(query);
                 const pathParts = url.pathname.split('/');
-                // Handle different spotify URL formats
-                // https://open.spotify.com/track/ID
-                // https://open.spotify.com/intl-pt/track/ID
                 let id = pathParts[pathParts.length - 1];
                 let type = pathParts[pathParts.length - 2];
-                
-                // Basic cleanup for ID (remove query params if any remain after URL parsing)
+
                 if (id.includes('?')) id = id.split('?')[0];
 
                 if (type === 'track') {
                     const data = await this.spotify.getTrack(id);
                     const track = data.body;
                     query = `${track.name} ${track.artists[0].name}`;
-                    isUrl = false; // Convert to search query
+                    isUrl = false;
                 } else if (type === 'playlist') {
                     const data = await this.spotify.getPlaylist(id);
                     const playlist = data.body;
                     playlistName = playlist.name;
-                    
-                    // For now, just play the first track to avoid complex queueing logic in this simple implementation
-                    // A full implementation would map all tracks to YouTube searches
+
                     if (playlist.tracks.items.length > 0) {
                         const item = playlist.tracks.items[0];
                         if (item.track) {
@@ -368,20 +362,19 @@ class MusicBot {
                             isUrl = false;
                         }
                     } else {
-                         const reply = '❌ Playlist is empty!';
-                         return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+                        const reply = '❌ Playlist is empty!';
+                        return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
                     }
                 }
             } catch (error) {
                 console.error('Spotify error:', error);
-                // Don't return error, let it try to resolve as URL or search as fallback
             }
         }
 
         try {
             const searchType = isUrl ? '' : (query.startsWith('scsearch:') ? '' : 'ytsearch:');
             const result = await node.rest.resolve(isUrl ? query : `${searchType}${query}`);
-            
+
             if (!result || result.loadType === 'empty') {
                 const reply = '❌ No results found!';
                 return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
@@ -393,7 +386,6 @@ class MusicBot {
             } else if (result.loadType === 'track') {
                 tracks = [result.data];
             } else if (result.loadType === 'search') {
-                // Only take the first search result
                 tracks = result.data && result.data.length > 0 ? [result.data[0]] : [];
             } else if (result.loadType === 'error') {
                 console.error('Lavalink error:', result.data);
@@ -416,13 +408,12 @@ class MusicBot {
 
         const queue = this.getQueue(guild.id);
 
-        // Join voice channel if needed
         if (!queue.player) {
             try {
                 const player = await this.shoukaku.joinVoiceChannel({
                     guildId: guild.id,
                     channelId: member.voice.channel.id,
-                    shardId: 0 // Assuming single shard
+                    shardId: 0
                 });
 
                 player.on('start', () => {
@@ -446,7 +437,6 @@ class MusicBot {
             }
         }
 
-        // Add tracks to queue
         for (const track of tracks) {
             queue.songs.push({
                 title: track.info.title,
@@ -469,7 +459,7 @@ class MusicBot {
             embed.setTitle(`🎵 Added Playlist: ${playlistName}`)
                 .setDescription(`Added **${tracks.length}** songs to queue.`);
         } else {
-            const song = queue.songs[queue.songs.length - tracks.length]; // Get the first added song
+            const song = queue.songs[queue.songs.length - tracks.length];
             if (song) {
                 embed.setTitle('🎵 Added to Queue')
                     .setDescription(`**${song.title}**`)
@@ -500,7 +490,6 @@ class MusicBot {
             if (queue.songs.length === 0) {
                 queue.playing = false;
                 queue.currentSong = null;
-                // Optional: Leave channel after timeout
                 return;
             }
 
@@ -512,7 +501,6 @@ class MusicBot {
 
         if (queue.player) {
             await queue.player.playTrack({ track: { encoded: song.encoded } });
-            // Shoukaku uses filters for volume control
             await queue.player.setFilters({ volume: queue.volume / 100 });
         }
     }
@@ -540,7 +528,6 @@ class MusicBot {
             queue.playing = false;
             queue.currentSong = null;
             queue.player.stopTrack();
-            // shoukaku.leaveVoiceChannel(guildId) if you want to leave
         }
 
         const reply = '⏹️ Stopped and cleared queue!';
@@ -769,7 +756,6 @@ class MusicBot {
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
 
-        // Shoukaku seek is in milliseconds
         await queue.player.seekTo(seconds * 1000);
         const reply = `⏩ Seeked to ${seconds} seconds!`;
         isSlash ? interaction.reply(reply) : interaction.reply(reply);
@@ -824,6 +810,5 @@ class MusicBot {
     }
 }
 
-// Start the bot
 const bot = new MusicBot();
 bot.start();

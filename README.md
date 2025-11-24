@@ -49,21 +49,6 @@ A high-performance Discord music bot built with **Node.js**, **Discord.js**, and
 
 1.  **Start Lavalink** (in a separate terminal):
     ```bash
-    cd lavalink
-    java -jar Lavalink.jar
-    ```
-
-2.  **Start the Bot**:
-    ```bash
-    node index.js
-    ```
-
-## Commands 🎮
-
-| Command | Description |
-| :--- | :--- |
-| `/play <query>` | Play a song from YouTube, Spotify, or SoundCloud |
-| `/pause` | Pause the current track |
 | `/resume` | Resume playback |
 | `/skip` | Skip to the next song |
 | `/stop` | Stop playback and clear the queue |
