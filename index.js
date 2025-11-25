@@ -9,11 +9,11 @@ const MusicPlayer = require('./src/MusicPlayer');
 const CommandHandler = require('./src/CommandHandler');
 
 const Nodes = [
-    // {
-    //     name: 'Localhost',
-    //     url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
-    //     auth: 'youshallnotpass'
-    // },
+    {
+        name: 'Localhost',
+        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
+        auth: 'youshallnotpass'
+    },
     {
         name: 'AjieDev',
         url: 'lava-v4.ajieblogs.eu.org:443',
@@ -147,6 +147,9 @@ class MusicBot {
                     case 'lyrics':
                         await this.commandHandler.handleLyrics(interaction, interaction.options.getString('query'));
                         break;
+                    case 'help':
+                        await this.commandHandler.handleHelp(interaction);
+                        break;
                 }
             } catch (error) {
                 console.error('Interaction error:', error);
@@ -226,6 +229,10 @@ class MusicBot {
                     case 'lyrics':
                     case 'ly':
                         await this.commandHandler.handleLyrics(message, args.join(' '));
+                        break;
+                    case 'help':
+                    case 'h':
+                        await this.commandHandler.handleHelp(message);
                         break;
                 }
             } catch (error) {
@@ -309,7 +316,10 @@ class MusicBot {
                 .addStringOption(option =>
                     option.setName('query')
                         .setDescription('Song name')
-                        .setRequired(false))
+                        .setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('help')
+                .setDescription('Show available commands')
         ];
 
         try {

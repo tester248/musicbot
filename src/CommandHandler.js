@@ -79,7 +79,24 @@ class CommandHandler {
                     shardId: 0
                 });
 
-                player.on('start', () => console.log('Track started'));
+                player.on('start', () => {
+                    console.log('Track started');
+                    const queue = this.queueManager.getQueue(guild.id);
+                    if (queue.currentSong && queue.textChannel) {
+                        const embed = new EmbedBuilder()
+                            .setColor('#0099ff')
+                            .setTitle('🎶 Now Playing')
+                            .setDescription(`**${queue.currentSong.title}**`)
+                            .addFields(
+                                { name: 'Duration', value: queue.currentSong.duration, inline: true },
+                                { name: 'Requested by', value: queue.currentSong.requester.toString(), inline: true }
+                            );
+                        if (queue.currentSong.thumbnail) {
+                            embed.setThumbnail(queue.currentSong.thumbnail);
+                        }
+                        queue.textChannel.send({ embeds: [embed] }).catch(console.error);
+                    }
+                });
                 player.on('end', () => this.queueManager.playNext(guild.id));
                 player.on('exception', async (err) => {
                     console.error('Track exception:', err);
@@ -137,6 +154,7 @@ class CommandHandler {
             }
         }
 
+        queue.textChannel = interaction.channel;
         this.queueManager.addSongs(guild.id, tracks, member.user, this.musicPlayer.formatDuration.bind(this.musicPlayer), query);
 
         if (!queue.playing) {
@@ -403,6 +421,36 @@ class CommandHandler {
             const reply = '❌ Error fetching lyrics!';
             return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
         }
+    }
+
+    async handleHelp(interaction) {
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+
+        const embed = new EmbedBuilder()
+            .setColor('#0099ff')
+            .setTitle('🤖 Music Bot Commands')
+            .setDescription('Here are the available commands:')
+            .addFields(
+                { name: '/play <query>', value: 'Play a song from YouTube or Spotify' },
+                { name: '/skip', value: 'Skip the current song' },
+                { name: '/stop', value: 'Stop playback and clear queue' },
+                { name: '/pause', value: 'Pause playback' },
+                { name: '/resume', value: 'Resume playback' },
+                { name: '/queue', value: 'Show the current queue' },
+                { name: '/nowplaying', value: 'Show the currently playing song' },
+                { name: '/volume <0-100>', value: 'Set the volume' },
+                { name: '/seek <seconds>', value: 'Seek to a specific time in the song' },
+                { name: '/loop <mode>', value: 'Set loop mode (off, track, queue)' },
+                { name: '/shuffle', value: 'Shuffle the queue' },
+                { name: '/lyrics [query]', value: 'Get lyrics for current or specified song' },
+                { name: '/join', value: 'Join your voice channel' },
+                { name: '/leave', value: 'Leave the voice channel' },
+                { name: '/clear', value: 'Clear the queue' }
+            )
+            .setFooter({ text: 'Music Bot' });
+
+        const reply = { embeds: [embed] };
+        isSlash ? interaction.reply(reply) : interaction.reply(reply);
     }
 
     async handlePlaybackFallback(guildId, originalQuery, requester) {
