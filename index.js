@@ -9,11 +9,11 @@ const MusicPlayer = require('./src/MusicPlayer');
 const CommandHandler = require('./src/CommandHandler');
 
 const Nodes = [
-    {
-        name: 'Localhost',
-        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
-        auth: 'youshallnotpass'
-    },
+    // {
+    //     name: 'Localhost',
+    //     url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
+    //     auth: 'youshallnotpass'
+    // },
     {
         name: 'AjieDev',
         url: 'lava-v4.ajieblogs.eu.org:443',
