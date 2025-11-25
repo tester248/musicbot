@@ -51,7 +51,7 @@ plugins:
       - ANDROID_TESTSUITE
       - MEDIA_CONNECT
     oauth:
-      enabled: true
+      enabled: ${YOUTUBE_OAUTH_ENABLED:-false}
       # Refresh token will be set via environment variable
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:-}"
 
