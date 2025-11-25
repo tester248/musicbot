@@ -39,7 +39,22 @@ class MusicBot {
             ],
         });
 
-        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes);
+        const options = {
+            nodeResolver: (nodes) => {
+                const connectedNodes = [...nodes.values()].filter(node => node.state === 2); // 2 is CONNECTED
+                const publicNodes = connectedNodes.filter(node => node.name !== 'Localhost');
+
+                if (publicNodes.length > 0) {
+                    // Return a random public node
+                    return publicNodes[Math.floor(Math.random() * publicNodes.length)];
+                }
+
+                // Fallback to any connected node (likely Localhost)
+                return connectedNodes[Math.floor(Math.random() * connectedNodes.length)];
+            }
+        };
+
+        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes, options);
 
         // Initialize Spotify API
         this.spotify = new SpotifyWebApi({
