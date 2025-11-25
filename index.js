@@ -9,6 +9,13 @@ const MusicPlayer = require('./src/MusicPlayer');
 const CommandHandler = require('./src/CommandHandler');
 
 const Nodes = [
+    /*
+    {
+        name: 'Localhost',
+        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
+        auth: 'youshallnotpass'
+    },
+    */
     {
         name: 'AjieDev',
         url: 'lava-v4.ajieblogs.eu.org:443',
@@ -20,11 +27,6 @@ const Nodes = [
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
-    },
-    {
-        name: 'Localhost',
-        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
-        auth: 'youshallnotpass'
     }
 ];
 
@@ -39,22 +41,7 @@ class MusicBot {
             ],
         });
 
-        const options = {
-            nodeResolver: (nodes) => {
-                const connectedNodes = [...nodes.values()].filter(node => node.state === 2); // 2 is CONNECTED
-                const publicNodes = connectedNodes.filter(node => node.name !== 'Localhost');
-
-                if (publicNodes.length > 0) {
-                    // Return a random public node
-                    return publicNodes[Math.floor(Math.random() * publicNodes.length)];
-                }
-
-                // Fallback to any connected node (likely Localhost)
-                return connectedNodes[Math.floor(Math.random() * connectedNodes.length)];
-            }
-        };
-
-        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes, options);
+        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes);
 
         // Initialize Spotify API
         this.spotify = new SpotifyWebApi({
