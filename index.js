@@ -10,11 +10,6 @@ const CommandHandler = require('./src/CommandHandler');
 
 const Nodes = [
     {
-        name: 'Localhost',
-        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
-        auth: 'youshallnotpass'
-    },
-    {
         name: 'AjieDev',
         url: 'lava-v4.ajieblogs.eu.org:443',
         auth: 'https://dsc.gg/ajidevserver',
@@ -25,6 +20,11 @@ const Nodes = [
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
+    },
+    {
+        name: 'Localhost',
+        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
+        auth: 'youshallnotpass'
     }
 ];
 
