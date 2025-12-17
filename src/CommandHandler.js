@@ -271,7 +271,7 @@ class CommandHandler {
         }
 
         const reply = { embeds: [embed] };
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        interaction.reply(reply);
     }
 
     async handleQueueRemove(interaction, position) {
@@ -290,7 +290,7 @@ class CommandHandler {
         }
 
         const reply = `✅ Removed from queue: **${result.song.title}**`;
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        interaction.reply(reply);
     }
 
     async handleQueueMove(interaction, fromPosition, toPosition) {
@@ -309,7 +309,7 @@ class CommandHandler {
         }
 
         const reply = `✅ Moved **${result.song.title}** from position ${fromPosition} to position ${toPosition}`;
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        interaction.reply(reply);
     }
 
     async handleNowPlaying(interaction) {
