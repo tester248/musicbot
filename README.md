@@ -13,7 +13,10 @@ A high‑performance Discord music bot built with **Node.js**, **Discord.js**, a
   - SoundCloud
 - **UI Enhancements** – "Now Playing" announcements and a clean `/help` menu.
 - **Dual Command System** – Slash commands (`/play`) **and** prefix commands (`!play`).
-- **Robust Queue** – Loop, shuffle, seek, clear, etc.
+- **Robust Queue** – Loop, shuffle, seek, clear, plus **advanced queue management**:
+  - View paginated queues (10 songs per page)
+  - Remove specific songs by position
+  - Move/reorder songs in the queue
 - **Lyrics** – Fetch lyrics via Genius.
 
 ## Prerequisites 📋
@@ -70,7 +73,9 @@ LAVALINK_HOST=localhost # optional, defaults to localhost
 | `/stop` | Stop playback and clear the queue |
 | `/pause` | Pause the current song |
 | `/resume` | Resume playback |
-| `/queue` | Show the current queue |
+| `/queue show [page]` | Show the current queue (with pagination) |
+| `/queue remove <position>` | Remove a song from the queue |
+| `/queue move <from> <to>` | Move a song in the queue |
 | `/nowplaying` | Show the currently playing song |
 | `/volume <0‑100>` | Adjust the volume |
 | `/loop <mode>` | Set loop mode (off, track, queue) |
@@ -81,6 +86,14 @@ LAVALINK_HOST=localhost # optional, defaults to localhost
 | `/leave` | Leave the voice channel |
 | `/clear` | Clear the queue |
 | `/help` | Show all available commands |
+
+**Prefix commands** are also supported (default prefix: `!`):
+- `!play` or `!p` – Play a song
+- `!queue` or `!q` – Show queue
+- `!queue 2` – Show page 2 of queue
+- `!queue remove 4` or `!q rm 4` – Remove song at position 4
+- `!queue move 7 2` or `!q mv 7 2` – Move song from position 7 to 2
+- And more... (see `/help` for full list)
 
 ## Troubleshooting 🔧
 
