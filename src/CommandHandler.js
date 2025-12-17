@@ -223,14 +223,30 @@ class CommandHandler {
         }
     }
 
-    async handleQueue(interaction) {
+    async handleQueue(interaction, subcommand = null, ...args) {
         const isSlash = interaction.isChatInputCommand?.() ?? false;
         const queue = this.queueManager.getQueue(interaction.guild.id);
 
+        // Handle subcommands
+        if (subcommand === 'remove') {
+            return this.handleQueueRemove(interaction, args[0]);
+        } else if (subcommand === 'move') {
+            return this.handleQueueMove(interaction, args[0], args[1]);
+        }
+
+        // Default queue display with pagination
+        const page = args[0] || 1;
+        
         if (!queue.currentSong && queue.songs.length === 0) {
             const reply = '❌ Queue is empty!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
+
+        const songsPerPage = 10;
+        const totalPages = Math.ceil(queue.songs.length / songsPerPage);
+        const currentPage = Math.max(1, Math.min(page, totalPages || 1));
+        const startIndex = (currentPage - 1) * songsPerPage;
+        const endIndex = startIndex + songsPerPage;
 
         const embed = new EmbedBuilder()
             .setColor('#0099ff')
@@ -241,17 +257,59 @@ class CommandHandler {
         }
 
         if (queue.songs.length > 0) {
-            const queueList = queue.songs.slice(0, 10).map((song, index) => {
-                return `${index + 1}. **${song.title}** (${song.duration})`;
+            const queueList = queue.songs.slice(startIndex, endIndex).map((song, index) => {
+                return `${startIndex + index + 1}. **${song.title}** (${song.duration})`;
             }).join('\n');
 
-            embed.setDescription(`**Up Next:**\n${queueList}${queue.songs.length > 10 ? `\n...and ${queue.songs.length - 10} more` : ''}`);
+            embed.setDescription(`**Up Next:**\n${queueList}`);
+            
+            if (totalPages > 1) {
+                embed.setFooter({ text: `Page ${currentPage}/${totalPages} | Total songs: ${queue.songs.length}` });
+            }
         } else {
             embed.setDescription('No more songs in queue.');
         }
 
         const reply = { embeds: [embed] };
-        isSlash ? interaction.reply(reply) : interaction.reply(reply);
+        interaction.reply(reply);
+    }
+
+    async handleQueueRemove(interaction, position) {
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        
+        if (!position || isNaN(position)) {
+            const reply = '❌ Please provide a valid position number!';
+            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        }
+
+        const result = this.queueManager.removeSong(interaction.guild.id, parseInt(position));
+        
+        if (!result.success) {
+            const reply = `❌ ${result.error}`;
+            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        }
+
+        const reply = `✅ Removed from queue: **${result.song.title}**`;
+        interaction.reply(reply);
+    }
+
+    async handleQueueMove(interaction, fromPosition, toPosition) {
+        const isSlash = interaction.isChatInputCommand?.() ?? false;
+        
+        if (!fromPosition || !toPosition || isNaN(fromPosition) || isNaN(toPosition)) {
+            const reply = '❌ Please provide valid position numbers!';
+            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        }
+
+        const result = this.queueManager.moveSong(interaction.guild.id, parseInt(fromPosition), parseInt(toPosition));
+        
+        if (!result.success) {
+            const reply = `❌ ${result.error}`;
+            return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
+        }
+
+        const reply = `✅ Moved **${result.song.title}** from position ${fromPosition} to position ${toPosition}`;
+        interaction.reply(reply);
     }
 
     async handleNowPlaying(interaction) {
@@ -436,7 +494,9 @@ class CommandHandler {
                 { name: '/stop', value: 'Stop playback and clear queue' },
                 { name: '/pause', value: 'Pause playback' },
                 { name: '/resume', value: 'Resume playback' },
-                { name: '/queue', value: 'Show the current queue' },
+                { name: '/queue [page]', value: 'Show the current queue (optionally specify page number)' },
+                { name: '/queue remove <position>', value: 'Remove a song from the queue' },
+                { name: '/queue move <from> <to>', value: 'Move a song in the queue' },
                 { name: '/nowplaying', value: 'Show the currently playing song' },
                 { name: '/volume <0-100>', value: 'Set the volume' },
                 { name: '/seek <seconds>', value: 'Seek to a specific time in the song' },
@@ -460,8 +520,6 @@ class CommandHandler {
             await this.queueManager.playNext(guildId);
             return;
         }
-
-        const queue = this.queueManager.getQueue(guildId);
 
         // Try Spotify search
         try {

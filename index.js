@@ -119,9 +119,17 @@ class MusicBot {
                     case 'resume':
                         await this.commandHandler.handleResume(interaction);
                         break;
-                    case 'queue':
-                        await this.commandHandler.handleQueue(interaction);
+                    case 'queue': {
+                        const queueSubcommand = interaction.options.getSubcommand();
+                        if (queueSubcommand === 'show') {
+                            await this.commandHandler.handleQueue(interaction, null, interaction.options.getInteger('page'));
+                        } else if (queueSubcommand === 'remove') {
+                            await this.commandHandler.handleQueue(interaction, 'remove', interaction.options.getInteger('position'));
+                        } else if (queueSubcommand === 'move') {
+                            await this.commandHandler.handleQueue(interaction, 'move', interaction.options.getInteger('from'), interaction.options.getInteger('to'));
+                        }
                         break;
+                    }
                     case 'nowplaying':
                         await this.commandHandler.handleNowPlaying(interaction);
                         break;
@@ -195,7 +203,21 @@ class MusicBot {
                         break;
                     case 'queue':
                     case 'q':
-                        await this.commandHandler.handleQueue(message);
+                        if (args.length > 0) {
+                            const subcommand = args[0].toLowerCase();
+                            if (subcommand === 'remove' || subcommand === 'rm') {
+                                await this.commandHandler.handleQueue(message, 'remove', parseInt(args[1]));
+                            } else if (subcommand === 'move' || subcommand === 'mv') {
+                                await this.commandHandler.handleQueue(message, 'move', parseInt(args[1]), parseInt(args[2]));
+                            } else if (!isNaN(args[0])) {
+                                // If first arg is a number, treat it as page number
+                                await this.commandHandler.handleQueue(message, null, parseInt(args[0]));
+                            } else {
+                                await this.commandHandler.handleQueue(message);
+                            }
+                        } else {
+                            await this.commandHandler.handleQueue(message);
+                        }
                         break;
                     case 'nowplaying':
                     case 'np':
@@ -267,7 +289,39 @@ class MusicBot {
                 .setDescription('Resume the current song'),
             new SlashCommandBuilder()
                 .setName('queue')
-                .setDescription('Show the current queue'),
+                .setDescription('Manage the music queue')
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('show')
+                        .setDescription('Show the current queue')
+                        .addIntegerOption(option =>
+                            option.setName('page')
+                                .setDescription('Page number to display')
+                                .setRequired(false)
+                                .setMinValue(1)))
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('remove')
+                        .setDescription('Remove a song from the queue')
+                        .addIntegerOption(option =>
+                            option.setName('position')
+                                .setDescription('Position of the song to remove')
+                                .setRequired(true)
+                                .setMinValue(1)))
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('move')
+                        .setDescription('Move a song in the queue')
+                        .addIntegerOption(option =>
+                            option.setName('from')
+                                .setDescription('Current position of the song')
+                                .setRequired(true)
+                                .setMinValue(1))
+                        .addIntegerOption(option =>
+                            option.setName('to')
+                                .setDescription('New position for the song')
+                                .setRequired(true)
+                                .setMinValue(1))),
             new SlashCommandBuilder()
                 .setName('nowplaying')
                 .setDescription('Show the currently playing song'),

@@ -106,6 +106,41 @@ class QueueManager {
         const queue = this.getQueue(guildId);
         queue.volume = level;
     }
+
+    removeSong(guildId, position) {
+        const queue = this.getQueue(guildId);
+        
+        // position is 1-indexed for users, convert to 0-indexed
+        const index = position - 1;
+        
+        if (index < 0 || index >= queue.songs.length) {
+            return { success: false, error: 'Invalid position!' };
+        }
+        
+        const removedSong = queue.songs.splice(index, 1)[0];
+        return { success: true, song: removedSong };
+    }
+
+    moveSong(guildId, fromPosition, toPosition) {
+        const queue = this.getQueue(guildId);
+        
+        // positions are 1-indexed for users, convert to 0-indexed
+        const fromIndex = fromPosition - 1;
+        const toIndex = toPosition - 1;
+        
+        if (fromIndex < 0 || fromIndex >= queue.songs.length) {
+            return { success: false, error: 'Invalid source position!' };
+        }
+        
+        if (toIndex < 0 || toIndex >= queue.songs.length) {
+            return { success: false, error: 'Invalid target position!' };
+        }
+        
+        const [song] = queue.songs.splice(fromIndex, 1);
+        queue.songs.splice(toIndex, 0, song);
+        
+        return { success: true, song: song };
+    }
 }
 
 module.exports = QueueManager;
