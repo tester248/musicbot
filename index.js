@@ -17,21 +17,21 @@ const Nodes = [
     },
     */
     {
-    "host": "lavalinkv4.serenetia.com",
-    "port": 443,
-    "password": "https://seretia.link/discord",
+    "name": "Serenetia Secure",
+    "url": "lavalinkv4.serenetia.com:443",
+    "auth": "https://seretia.link/discord",
     "secure": true
     },
     {
-    "host": "lavalink-v4.triniumhost.com",
-    "port": 443,
-    "password": "free",
+    "name": "TriniumHost Lavalink V4",
+    "url": "lavalink-v4.triniumhost.com:443",
+    "auth": "free",
     "secure": true
     },
     {
-    "host": "lavalinkv4.serenetia.com",
-    "port": 80,
-    "password": "https://seretia.link/discord",
+    "name": "Serenetia",
+    "url": "lavalinkv4.serenetia.com:80",
+    "auth": "https://seretia.link/discord",
     "secure": false
     }
 ];
