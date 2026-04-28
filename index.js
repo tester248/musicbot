@@ -17,16 +17,22 @@ const Nodes = [
     },
     */
     {
-        name: 'AjieDev',
-        url: 'lava-v4.ajieblogs.eu.org:443',
-        auth: 'https://dsc.gg/ajidevserver',
-        secure: true
+    "host": "lavalinkv4.serenetia.com",
+    "port": 443,
+    "password": "https://seretia.link/discord",
+    "secure": true
     },
     {
-        name: 'Serenetia',
-        url: 'lavalinkv4.serenetia.com:443',
-        auth: 'https://dsc.gg/ajidevserver',
-        secure: true
+    "host": "lavalink-v4.triniumhost.com",
+    "port": 443,
+    "password": "free",
+    "secure": true
+    },
+    {
+    "host": "lavalinkv4.serenetia.com",
+    "port": 80,
+    "password": "https://seretia.link/discord",
+    "secure": false
     }
 ];
 
