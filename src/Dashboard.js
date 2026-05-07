@@ -16,7 +16,8 @@ class Dashboard {
                 methods: ["GET", "POST"]
             }
         });
-        this.port = process.env.PORT || 3000;
+        // Use DASHBOARD_PORT, or PORT (if it's not 2333), or fallback to 3000
+        this.port = process.env.DASHBOARD_PORT || (process.env.PORT && process.env.PORT !== '2333' ? process.env.PORT : 3000);
 
         this.setupExpress();
         this.setupSockets();
