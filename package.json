@@ -18,8 +18,10 @@
   "dependencies": {
     "discord.js": "latest",
     "dotenv": "latest",
+    "express": "^5.2.1",
     "genius-lyrics": "latest",
     "shoukaku": "latest",
+    "socket.io": "^4.8.3",
     "spotify-web-api-node": "latest"
   },
   "devDependencies": {

@@ -7,6 +7,7 @@ const Genius = require('genius-lyrics');
 const QueueManager = require('./src/QueueManager');
 const MusicPlayer = require('./src/MusicPlayer');
 const CommandHandler = require('./src/CommandHandler');
+const Dashboard = require('./src/Dashboard');
 
 const Nodes = [
     {
@@ -71,12 +72,14 @@ class MusicBot {
         // Initialize managers
         this.queueManager = new QueueManager();
         this.musicPlayer = new MusicPlayer(this.spotify, this.shoukaku);
+        this.dashboard = new Dashboard(this.client, this.queueManager, this.shoukaku);
         this.commandHandler = new CommandHandler(
             this.queueManager,
             this.musicPlayer,
             this.shoukaku,
             this.spotify,
-            this.geniusClient
+            this.geniusClient,
+            this.dashboard
         );
 
         // Spotify Token Refresh
@@ -415,6 +418,7 @@ class MusicBot {
 
     start() {
         this.client.login(process.env.DISCORD_TOKEN);
+        this.dashboard.start();
     }
 }
 

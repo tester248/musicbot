@@ -1,12 +1,13 @@
 const { EmbedBuilder } = require('discord.js');
 
 class CommandHandler {
-    constructor(queueManager, musicPlayer, shoukaku, spotify, geniusClient) {
+    constructor(queueManager, musicPlayer, shoukaku, spotify, geniusClient, dashboard) {
         this.queueManager = queueManager;
         this.musicPlayer = musicPlayer;
         this.shoukaku = shoukaku;
         this.spotify = spotify;
         this.geniusClient = geniusClient;
+        this.dashboard = dashboard;
     }
 
     async handlePlay(interaction, query) {
@@ -82,6 +83,7 @@ class CommandHandler {
 
                 player.on('start', () => {
                     console.log('Track started');
+                    this.dashboard.broadcastUpdate();
                     const queue = this.queueManager.getQueue(guild.id);
                     if (queue.currentSong && queue.textChannel) {
                         const embed = new EmbedBuilder()
@@ -98,7 +100,10 @@ class CommandHandler {
                         queue.textChannel.send({ embeds: [embed] }).catch(console.error);
                     }
                 });
-                player.on('end', () => this.queueManager.playNext(guild.id));
+                player.on('end', () => {
+                    this.queueManager.playNext(guild.id);
+                    this.dashboard.broadcastUpdate();
+                });
                 player.on('exception', async (err) => {
                     console.error('Track exception:', err);
 
