@@ -33,8 +33,8 @@ COPY lavalink/application.yml /opt/lavalink/application.yml
 # Copy and make entrypoint script executable (it's in the WORKDIR from COPY . .)
 RUN chmod +x /usr/src/app/entrypoint.sh
 
-# Expose Lavalink port (internal use only)
-EXPOSE 2333
+# Expose Lavalink port (internal) and Dashboard port (external)
+EXPOSE 2333 3000
 
 # Default host for the bot to connect to Lavalink (IPv4 localhost)
 ENV LAVALINK_HOST=127.0.0.1
