@@ -26,7 +26,7 @@ class CommandHandler {
 
         if (isSlash) await interaction.deferReply();
 
-        const node = this.shoukaku.options.nodeResolver(this.shoukaku.nodes);
+        const node = this.shoukaku.getIdealNode();
         if (!node) {
             const reply = '❌ No Lavalink node available!';
             return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
@@ -76,7 +76,8 @@ class CommandHandler {
                 const player = await this.shoukaku.joinVoiceChannel({
                     guildId: guild.id,
                     channelId: member.voice.channel.id,
-                    shardId: 0
+                    shardId: guild.shardId || 0,
+                    deaf: true
                 });
 
                 player.on('start', () => {
@@ -373,7 +374,8 @@ class CommandHandler {
                 const player = await this.shoukaku.joinVoiceChannel({
                     guildId: guild.id,
                     channelId: member.voice.channel.id,
-                    shardId: 0
+                    shardId: guild.shardId || 0,
+                    deaf: true
                 });
 
                 queue.player = player;

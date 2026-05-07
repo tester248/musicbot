@@ -9,30 +9,35 @@ const MusicPlayer = require('./src/MusicPlayer');
 const CommandHandler = require('./src/CommandHandler');
 
 const Nodes = [
-    /*
     {
-        name: 'Localhost',
-        url: `${process.env.LAVALINK_HOST || 'localhost'}:2333`,
-        auth: 'youshallnotpass'
-    },
-    */
-    {
-    "name": "Serenetia Secure",
-    "url": "lavalinkv4.serenetia.com:443",
-    "auth": "https://seretia.link/discord",
-    "secure": true
+        name: 'Serenetia Secure',
+        url: 'lavalinkv4.serenetia.com:443',
+        auth: 'https://seretia.link/discord',
+        secure: true
     },
     {
-    "name": "TriniumHost Lavalink V4",
-    "url": "lavalink-v4.triniumhost.com:443",
-    "auth": "free",
-    "secure": true
+        name: 'Serenetia Non-SSL',
+        url: 'lavalinkv4.serenetia.com:80',
+        auth: 'https://seretia.link/discord',
+        secure: false
     },
     {
-    "name": "Serenetia",
-    "url": "lavalinkv4.serenetia.com:80",
-    "auth": "https://seretia.link/discord",
-    "secure": false
+        name: 'Jirayu',
+        url: 'lavalink.jirayu.net:443',
+        auth: 'youshallnotpass',
+        secure: true
+    },
+    {
+        name: 'Millohost',
+        url: 'lava-v4.millohost.my.id:443',
+        auth: 'https://discord.gg/mjS5J2K3ep',
+        secure: true
+    },
+    {
+        name: 'TriniumHost Lavalink V4',
+        url: 'lavalink-v4.triniumhost.com:443',
+        auth: 'free',
+        secure: true
     }
 ];
 
@@ -47,7 +52,13 @@ class MusicBot {
             ],
         });
 
-        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes);
+        this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes, {
+            moveOnDisconnect: true,
+            resume: true,
+            reconnectTries: 10,
+            reconnectInterval: 5000,
+            restTimeout: 15000
+        });
 
         // Initialize Spotify API
         this.spotify = new SpotifyWebApi({
@@ -97,6 +108,14 @@ class MusicBot {
     }
 
     setupClient() {
+        this.client.on('raw', (packet) => {
+            if (packet.t === 'VOICE_SERVER_UPDATE') {
+                if (packet.d.endpoint && packet.d.endpoint.includes(':')) {
+                    packet.d.endpoint = packet.d.endpoint.split(':')[0];
+                }
+            }
+        });
+
         this.client.on('ready', () => {
             console.log(`✅ Bot is ready! Logged in as ${this.client.user.tag}`);
             this.client.user.setActivity('Music 🎵 | /play', { type: ActivityType.Listening });

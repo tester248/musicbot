@@ -16,11 +16,11 @@
   "author": "tester248",
   "license": "ISC",
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1",
-    "genius-lyrics": "^4.4.7",
-    "shoukaku": "^4.1.0",
-    "spotify-web-api-node": "^5.0.2"
+    "discord.js": "latest",
+    "dotenv": "latest",
+    "genius-lyrics": "latest",
+    "shoukaku": "latest",
+    "spotify-web-api-node": "latest"
   },
   "devDependencies": {
     "eslint": "^9.39.1",
