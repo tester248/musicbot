@@ -53,12 +53,16 @@ class MusicBot {
             ],
         });
 
+        const stabilityMode = process.env.STABILITY_MODE === 'true';
+
         this.shoukaku = new Shoukaku(new Connectors.DiscordJS(this.client), Nodes, {
             moveOnDisconnect: true,
             resume: true,
-            reconnectTries: 10,
+            resumeTimeout: stabilityMode ? 120 : 60,
+            reconnectTries: stabilityMode ? 20 : 10,
             reconnectInterval: 5000,
-            restTimeout: 15000
+            restTimeout: stabilityMode ? 30000 : 15000,
+            voiceConnectionTimeout: stabilityMode ? 40000 : 20000
         });
 
         // Initialize Spotify API

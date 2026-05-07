@@ -12,12 +12,17 @@ else
     echo "ℹ️ YouTube OAuth Disabled (No token provided)"
 fi
 
-# Start Lavalink in background with config import (Lavalink v4 / Spring Boot 3.x)
-cd /opt/lavalink
-java -jar Lavalink.jar &
-cd /usr/src/app
-# Give Lavalink a moment to start up
-sleep 15
+# Start Lavalink if enabled
+if [ "${USE_LOCAL_LAVALINK}" = "false" ]; then
+    echo "⏩ USE_LOCAL_LAVALINK is false. Skipping local Lavalink startup to save RAM..."
+else
+    echo "🚀 Starting local Lavalink server..."
+    cd /opt/lavalink
+    java -jar Lavalink.jar &
+    cd /usr/src/app
+    echo "⏳ Waiting for local Lavalink to initialize..."
+    sleep 15
+fi
 
 # Start the Discord bot
 node /usr/src/app/index.js
