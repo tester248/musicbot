@@ -6,8 +6,17 @@ const Genius = require('genius-lyrics');
 
 const QueueManager = require('./src/QueueManager');
 const MusicPlayer = require('./src/MusicPlayer');
+const PlaybackManager = require('./src/PlaybackManager');
 const CommandHandler = require('./src/CommandHandler');
 const Dashboard = require('./src/Dashboard');
+
+// Catch unhandled rejections and exceptions from Shoukaku internal errors to prevent process crash
+process.on('unhandledRejection', (error) => {
+    console.error('Unhandled Promise Rejection (Likely Lavalink/Shoukaku internal error):', error);
+});
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception (Likely Lavalink/Shoukaku internal error):', error);
+});
 
 const Nodes = [
     {
@@ -77,13 +86,20 @@ class MusicBot {
         this.queueManager = new QueueManager();
         this.musicPlayer = new MusicPlayer(this.spotify, this.shoukaku);
         this.dashboard = new Dashboard(this.client, this.queueManager, this.shoukaku);
+        this.playbackManager = new PlaybackManager(
+            this.shoukaku,
+            this.queueManager,
+            this.musicPlayer,
+            this.dashboard
+        );
         this.commandHandler = new CommandHandler(
             this.queueManager,
             this.musicPlayer,
             this.shoukaku,
             this.spotify,
             this.geniusClient,
-            this.dashboard
+            this.dashboard,
+            this.playbackManager
         );
 
         // Spotify Token Refresh
@@ -111,17 +127,13 @@ class MusicBot {
         this.shoukaku.on('error', (_, error) => console.error('Shoukaku: Error', error));
         this.shoukaku.on('close', (name, code, reason) => console.warn(`Shoukaku: Closed ${name} ${code} ${reason}`));
         this.shoukaku.on('disconnect', (name, players, moved) => console.warn(`Shoukaku: Disconnected ${name} ${players} ${moved}`));
-        this.shoukaku.on('ready', (name) => console.log(`✅ Shoukaku: Node ${name} is ready`));
+        this.shoukaku.on('ready', async (name) => {
+            console.log(`✅ Shoukaku: Node ${name} is ready`);
+            await this.playbackManager.testNode(name);
+        });
     }
 
     setupClient() {
-        this.client.on('raw', (packet) => {
-            if (packet.t === 'VOICE_SERVER_UPDATE') {
-                if (packet.d.endpoint && packet.d.endpoint.includes(':')) {
-                    packet.d.endpoint = packet.d.endpoint.split(':')[0];
-                }
-            }
-        });
 
         this.client.on('ready', () => {
             console.log(`✅ Bot is ready! Logged in as ${this.client.user.tag}`);

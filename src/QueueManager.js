@@ -34,7 +34,8 @@ class QueueManager {
                 encoded: track.encoded,
                 originalQuery: originalQuery || track.info.title, // For fallback
                 retryCount: 0, // Track retry attempts
-                triedClients: [] // Track which YouTube clients failed
+                triedClients: [], // Track which YouTube clients failed
+                triedNodes: [] // Track which nodes have been tried
             });
         }
     }
