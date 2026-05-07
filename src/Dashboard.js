@@ -68,7 +68,7 @@ class Dashboard {
         const activeListeners = [];
         guilds.forEach(guild => {
             guild.voiceStates.cache.forEach(vs => {
-                if (vs.member && !vs.member.user.bot) {
+                if (vs.member && !vs.member.user.bot && vs.channelId) {
                     activeListeners.push({
                         id: vs.member.id,
                         username: vs.member.user.username,
