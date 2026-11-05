@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
 class CommandHandler {
     constructor(queueManager, musicPlayer, shoukaku, spotify, geniusClient, dashboard, playbackManager) {
@@ -11,6 +11,27 @@ class CommandHandler {
         this.playbackManager = playbackManager;
     }
 
+    /**
+     * Validate the bot's access to a voice channel before attempting to join.
+     * Returns an error string if it cannot join, or null if joining is allowed.
+     */
+    checkVcAccess(interaction, channel) {
+        const me = interaction.guild?.members?.me;
+        if (!me) return null;
+
+        const perms = me.permissionsIn(channel);
+        if (!perms.has(PermissionFlagsBits.ViewChannel)) {
+            return '❌ I need **View Channel** permission to see that voice channel.';
+        }
+        if (!perms.has(PermissionFlagsBits.Connect)) {
+            return '❌ I don\'t have permission to **connect** to that voice channel (it may be private or restricted).';
+        }
+        if (!perms.has(PermissionFlagsBits.Speak)) {
+            return '⚠️ I don\'t have **Speak** permission in that channel — I can join but will be silent.';
+        }
+        return null;
+    }
+
     async handlePlay(interaction, query) {
         const isSlash = interaction.isChatInputCommand?.() ?? false;
         const member = interaction.member;
@@ -20,6 +41,9 @@ class CommandHandler {
             const reply = '❌ You need to be in a voice channel to play music!';
             return isSlash ? interaction.reply({ content: reply, ephemeral: true }) : interaction.reply(reply);
         }
+
+        const permError = this.checkVcAccess(interaction, member.voice.channel);
+        if (permError) return isSlash ? interaction.reply({ content: permError, ephemeral: true }) : interaction.reply(permError);
 
         if (!query) {
             const reply = '❌ Please provide a song name or URL!';
@@ -263,6 +287,9 @@ class CommandHandler {
         const isSlash = interaction.isChatInputCommand?.() ?? false;
         const member = interaction.member;
         if (!member.voice.channel) return isSlash ? interaction.reply({ content: '❌ You need to be in a voice channel!', ephemeral: true }) : interaction.reply('❌ You need to be in a voice channel!');
+
+        const permError = this.checkVcAccess(interaction, member.voice.channel);
+        if (permError) return isSlash ? interaction.reply({ content: permError, ephemeral: true }) : interaction.reply(permError);
 
         const guildId = interaction.guild.id;
         const queue = this.queueManager.getQueue(guildId);
