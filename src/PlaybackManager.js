@@ -1,4 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
+const { nowPlayingPayload } = require('./ui');
 
 class PlaybackManager {
     constructor(shoukaku, queueManager, musicPlayer, dashboard) {
@@ -28,29 +29,28 @@ class PlaybackManager {
      * Get the best working node based on scores and state
      */
     getWorkingNode() {
-        let node = this.preferredNodeName ? this.shoukaku.nodes.get(this.preferredNodeName) : null;
-        
-        // If preferred node is bad or disconnected, find a new one
-        if (!node || node.state !== 1 || this.badNodes.has(node.name)) {
-            const availableNodes = [...this.shoukaku.nodes.values()]
-                .filter(n => n.state === 1 && !this.badNodes.has(n.name))
-                .sort((a, b) => {
-                    const scoreA = this.nodeScores.get(a.name) || 0;
-                    const scoreB = this.nodeScores.get(b.name) || 0;
-                    
-                    // Prioritize score, then least players
-                    if (scoreB !== scoreA) return scoreB - scoreA;
-                    
-                    const countA = a.players?.size ?? a.stats?.players ?? 0;
-                    const countB = b.players?.size ?? b.stats?.players ?? 0;
-                    return countA - countB;
-                });
-            
-            node = availableNodes[0];
-            if (node) {
-                this.preferredNodeName = node.name;
-                console.log(`🌟 Preferred node updated to: ${node.name}`);
-            }
+        // Always compute the best node from current health rather than trusting a
+        // cached "preferred" node blindly. A previously-preferred node can become
+        // overloaded while a healthier node is available, and pinning to it causes
+        // hangs/evictions.
+        const availableNodes = [...this.shoukaku.nodes.values()]
+            .filter(n => n.state === 1 && !this.badNodes.has(n.name))
+            .sort((a, b) => {
+                const scoreA = this.nodeScores.get(a.name) || 0;
+                const scoreB = this.nodeScores.get(b.name) || 0;
+
+                // Prioritize score, then least players
+                if (scoreB !== scoreA) return scoreB - scoreA;
+
+                const countA = a.players?.size ?? a.stats?.players ?? 0;
+                const countB = b.players?.size ?? b.stats?.players ?? 0;
+                return countA - countB;
+            });
+
+        const node = availableNodes[0] || null;
+        if (node && node.name !== this.preferredNodeName) {
+            this.preferredNodeName = node.name;
+            console.log(`🌟 Preferred node updated to: ${node.name}`);
         }
         return node;
     }
@@ -284,18 +284,7 @@ class PlaybackManager {
 
             // Only post "Now Playing" embed if this is the first attempt (not a node-switch retry)
             if (queue.currentSong && queue.textChannel && (!queue.currentSong.retryCount || queue.currentSong.retryCount === 0)) {
-                const embed = new EmbedBuilder()
-                    .setColor('#0099ff')
-                    .setTitle('🎶 Now Playing')
-                    .setDescription(`**${queue.currentSong.title}**`)
-                    .addFields(
-                        { name: 'Duration', value: queue.currentSong.duration, inline: true },
-                        { name: 'Requested by', value: queue.currentSong.requester.toString(), inline: true }
-                    );
-                if (queue.currentSong.thumbnail) {
-                    embed.setThumbnail(queue.currentSong.thumbnail);
-                }
-                textChannel.send({ embeds: [embed] }).catch(() => {});
+                textChannel.send(nowPlayingPayload(queue)).catch(() => {});
             }
         });
 

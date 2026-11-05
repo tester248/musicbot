@@ -3,6 +3,8 @@ node_modules/
 cookies.txt
 .playwright-mcp/
 .tmp_chat_images/
+data/
+*.log
 lavalink/Lavalink.jar
 lavalink/logs/
 lavalink/plugins/

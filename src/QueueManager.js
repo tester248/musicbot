@@ -14,6 +14,16 @@ class QueueManager {
                 playing: false,
                 loopMode: 0, // 0: off, 1: track, 2: queue
                 volume: parseInt(process.env.DEFAULT_VOLUME) || 100,
+                filters: {
+                    bassboost: false,
+                    nightcore: false,
+                    '8d': false,
+                    karaoke: false,
+                    vibrato: false,
+                    speed: 1,
+                    pitch: 1,
+                },
+                appliedFilterKey: null, // serialized last-applied filter state
                 player: null
             });
         }
@@ -69,7 +79,9 @@ class QueueManager {
 
         if (queue.player) {
             await queue.player.playTrack({ track: { encoded: song.encoded } });
-            await queue.player.setFilters({ volume: queue.volume / 100 });
+            // Apply filters only when the effective filter state changed, to avoid
+            // restarting the stream (and stuttering) on every track.
+            await this.refreshFilters(guildId);
         }
     }
 
@@ -106,6 +118,52 @@ class QueueManager {
     setVolume(guildId, level) {
         const queue = this.getQueue(guildId);
         queue.volume = level;
+    }
+
+    /**
+     * Build the complete Lavalink filter payload from the queue's current state
+     * (volume + active audio filters).
+     */
+    buildFilterPayload(queue) {
+        const f = queue.filters;
+        const payload = {};
+        if (queue.volume !== 100) payload.volume = queue.volume / 100;
+
+        if (f.bassboost) {
+            payload.equalizer = [
+                { band: 0, gain: 0.18 },
+                { band: 1, gain: 0.14 },
+                { band: 2, gain: 0.08 },
+            ];
+        }
+
+        const ts = { speed: f.speed, pitch: f.pitch, rate: 1 };
+        if (f.nightcore) { ts.speed = 1.25; ts.pitch = 1.25; }
+        if (ts.speed !== 1 || ts.pitch !== 1) payload.timescale = ts;
+
+        if (f['8d']) payload.rotation = { rotationHz: 0.2 };
+        if (f.karaoke) payload.karaoke = {};
+        if (f.vibrato) payload.vibrato = { frequency: 10, depth: 0.4 };
+
+        return payload;
+    }
+
+    async applyFilters(queue) {
+        if (!queue.player) return;
+        await queue.player.setFilters(this.buildFilterPayload(queue));
+    }
+
+    /**
+     * Apply filters only if the effective filter state has changed. This avoids
+     * restarting the stream (and stuttering) when nothing changed between tracks.
+     */
+    async refreshFilters(guildId) {
+        const queue = this.getQueue(guildId);
+        const key = JSON.stringify(this.buildFilterPayload(queue));
+        if (queue.appliedFilterKey !== key) {
+            await this.applyFilters(queue);
+            queue.appliedFilterKey = key;
+        }
     }
 
     removeSong(guildId, position) {

@@ -83,9 +83,16 @@
             const [search, setSearch] = useState("");
             const [sidebarOpen, setSidebarOpen] = useState(false);
             const [localPositions, setLocalPositions] = useState({});
+            const [view, setView] = useState("overview");
+            const [playerGuild, setPlayerGuild] = useState(null);
+            const [playerState, setPlayerState] = useState(null);
+            const [searchQuery, setSearchQuery] = useState("");
+            const [results, setResults] = useState([]);
+            const socketRef = useRef(null);
 
             useEffect(() => {
                 const socket = io();
+                socketRef.current = socket;
                 socket.on('stats', (newData) => {
                     setData(newData);
                     // Sync local positions with server on update
@@ -95,8 +102,66 @@
                     });
                     setLocalPositions(positions);
                 });
+                socket.on('player:state', (state) => {
+                    if (state && state.guildId === playerGuild) setPlayerState(state);
+                });
+                socket.on('player:search-results', ({ tracks }) => setResults(tracks));
                 return () => socket.disconnect();
             }, []);
+
+            const fetchPlayer = async (guildId) => {
+                if (!guildId) return;
+                try {
+                    const r = await fetch('/api/player?guildId=' + guildId);
+                    const st = await r.json();
+                    setPlayerState(st);
+                } catch (e) {}
+            };
+
+            const doSearch = async () => {
+                if (!searchQuery.trim() || !playerGuild) return;
+                try {
+                    const r = await fetch('/api/player/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ guildId: playerGuild, query: searchQuery })
+                    });
+                    const d = await r.json();
+                    setResults(d.tracks || []);
+                } catch (e) { setResults([]); }
+            };
+
+            const doPlay = async (query) => {
+                if (!playerGuild) return;
+                try {
+                    await fetch('/api/player/play', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ guildId: playerGuild, query })
+                    });
+                    setTimeout(() => fetchPlayer(playerGuild), 800);
+                } catch (e) {}
+            };
+
+            const joinPlayer = async (guildId) => {
+                try {
+                    await fetch('/api/player/join', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ guildId })
+                    });
+                    setView('player');
+                    setPlayerGuild(guildId);
+                    setTimeout(() => fetchPlayer(guildId), 800);
+                } catch (e) {
+                    alert('Could not join voice channel: ' + e.message);
+                }
+            };
+
+            const sendAction = (action, value) => {
+                if (!playerGuild || !socketRef.current) return;
+                socketRef.current.emit('player:action', { guildId: playerGuild, action, value });
+            };
 
             // Local ticking for smooth progress
             useEffect(() => {
@@ -125,6 +190,10 @@
             const filteredGuilds = data.allGuilds.filter(g => 
                 g.name.toLowerCase().includes(search.toLowerCase())
             );
+            const listenersByGuild = {};
+            (data.activeListeners || []).forEach(l => {
+                listenersByGuild[l.guildName] = true;
+            });
 
             return (
                 <div className="flex h-screen w-full relative">
@@ -145,9 +214,15 @@
                         transition-transform duration-300 lg:translate-x-0
                         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
                     `}>
-                        <div className="p-6 border-b border-slate-800/50 hidden lg:flex items-center gap-3">
-                            <div className="p-2 bg-sky-500 rounded-lg text-white"><Icons.Music /></div>
-                            <h1 className="font-bold text-lg tracking-tight">Bot Overseer</h1>
+                        <div className="p-6 border-b border-slate-800/50 hidden lg:flex flex-col gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-sky-500 rounded-lg text-white"><Icons.Music /></div>
+                                <h1 className="font-bold text-lg tracking-tight">Bot Overseer</h1>
+                            </div>
+                            <div className="flex gap-2 text-xs">
+                                <button onClick={() => setView("overview")} className={`flex-1 py-1.5 rounded-lg font-semibold transition-colors ${view === "overview" ? 'bg-sky-500 text-slate-900' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800'}`}>Overview</button>
+                                <button onClick={() => { setView("player"); if (!playerGuild && data) setPlayerGuild(data.allGuilds[0]?.id); fetchPlayer(playerGuild || (data && data.allGuilds[0]?.id)); }} className={`flex-1 py-1.5 rounded-lg font-semibold transition-colors ${view === "player" ? 'bg-sky-500 text-slate-900' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800'}`}>Player</button>
+                            </div>
                         </div>
                         
                         <div className="p-4 mt-16 lg:mt-0">
@@ -164,24 +239,156 @@
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-4 space-y-1 pb-6">
-                            {filteredGuilds.map(guild => (
-                                <button 
-                                    key={guild.id} 
-                                    className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all hover:bg-slate-800/50 group ${guild.isActive ? 'active-glow bg-sky-500/5' : ''}`}
-                                >
-                                    <img src={guild.icon || 'https://cdn.discordapp.com/embed/avatars/0.png'} className="w-8 h-8 rounded-full shadow-lg" alt=""/>
-                                    <div className="text-left overflow-hidden">
-                                        <p className="text-sm font-medium truncate group-hover:text-sky-400 transition-colors">{guild.name}</p>
-                                        <p className="text-[10px] text-slate-500">{guild.memberCount} members</p>
-                                    </div>
-                                    {guild.isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></div>}
-                                </button>
-                            ))}
+                            {filteredGuilds.map(guild => {
+                                const hasListeners = !!listenersByGuild[guild.name];
+                                const active = guild.isActive || hasListeners;
+                                return (
+                                    <button 
+                                        key={guild.id} 
+                                        onClick={() => {
+                                            if (hasListeners || guild.isActive) {
+                                                joinPlayer(guild.id);
+                                            } else {
+                                                setView("player");
+                                                setPlayerGuild(guild.id);
+                                                fetchPlayer(guild.id);
+                                            }
+                                        }}
+                                        className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all hover:bg-slate-800/50 group ${active ? 'active-glow bg-sky-500/5 border-l-2 border-sky-400' : ''}`}
+                                    >
+                                        <img src={guild.icon || 'https://cdn.discordapp.com/embed/avatars/0.png'} className="w-8 h-8 rounded-full shadow-lg" alt=""/>
+                                        <div className="text-left overflow-hidden">
+                                            <p className="text-sm font-medium truncate group-hover:text-sky-400 transition-colors">{guild.name}</p>
+                                            <p className="text-[10px] text-slate-500">{guild.memberCount} members</p>
+                                        </div>
+                                        {hasListeners ? (
+                                            <button onClick={(e) => { e.stopPropagation(); joinPlayer(guild.id); }} className="ml-auto flex items-center gap-1 px-2 py-1 bg-sky-500 text-slate-900 rounded text-[10px] font-semibold hover:brightness-110 transition">
+                                                <Icons.Play size={14} /> Open player
+                                            </button>
+                                        ) : (
+                                            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></div>
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </aside>
 
                     {/* Main Content */}
                     <main className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-8 mt-16 lg:mt-0">
+                        {view === "player" ? (
+                            <section className="space-y-6">
+                                <div className="flex items-center justify-between gap-3">
+                                    <button onClick={() => { setView('overview'); setPlayerGuild(null); }} className="glass px-4 py-2 rounded-xl text-sm font-medium hover:brightness-110 transition">
+                                        ← Overview
+                                    </button>
+                                    <h2 className="text-xl font-bold flex items-center gap-2">
+                                        <span className="text-sky-400"><Icons.Music /></span>
+                                        Player
+                                    </h2>
+                                    <select
+                                        value={playerGuild || ''}
+                                        onChange={(e) => { setPlayerGuild(e.target.value); fetchPlayer(e.target.value); }}
+                                        className="bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-xs"
+                                    >
+                                        {data.allGuilds.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                                    </select>
+                                </div>
+
+                                {/* Search */}
+                                <div className="glass p-4 rounded-2xl space-y-4">
+                                    <div className="flex gap-3">
+                                        <input
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') doSearch(); }}
+                                            placeholder="Search songs, artists, albums…"
+                                            className="flex-1 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-sky-500"
+                                        />
+                                        <button onClick={doSearch} className="px-5 py-3 bg-sky-500 text-slate-900 font-bold rounded-xl text-sm hover:brightness-110 transition">Search</button>
+                                    </div>
+                                    {results.length > 0 && (
+                                        <div className="space-y-2">
+                                            {results.map((t, i) => (
+                                                <div key={i} className="flex items-center gap-3 bg-slate-900/50 rounded-xl px-4 py-3 cursor-pointer hover:bg-slate-800 transition group">
+                                                    <img src={t.thumbnail || 'https://via.placeholder.com/40'} className="w-10 h-10 rounded-lg object-cover" alt=""/>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-sm font-medium truncate">{t.title}</div>
+                                                        <div className="text-[10px] text-slate-400 truncate">{t.author}</div>
+                                                    </div>
+                                                    <span className="text-[10px] text-slate-400">{formatTime(t.duration)}</span>
+                                                    <button onClick={(e) => { e.stopPropagation(); doPlay(t.title + ' ' + t.author); }} className="px-4 py-2 bg-sky-500 text-slate-900 font-bold rounded-lg text-xs hover:brightness-110 transition">Play</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {searchQuery && results.length === 0 && <div className="text-xs text-slate-500 text-center py-4">No results. Try searching above.</div>}
+                                </div>
+
+                                {/* Now Playing */}
+                                <div className="glass p-6 rounded-2xl space-y-6">
+                                    {playerState && playerState.active && playerState.nowPlaying ? (
+                                        <>
+                                            <div className="flex items-center gap-6">
+                                                <img src={playerState.nowPlaying.thumbnail || 'https://via.placeholder.com/80'} className="w-32 h-32 rounded-2xl object-cover shadow-xl" alt=""/>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Now Playing</div>
+                                                    <h3 className="text-xl font-bold text-white truncate leading-tight">{playerState.nowPlaying.title}</h3>
+                                                    <div className="text-[12px] text-slate-400 mb-4">added by @{playerState.nowPlaying.requester} · {playerState.nowPlaying.duration}</div>
+                                                </div>
+                                            </div>
+                                            <div className="relative h-14 flex items-center gap-6 px-4">
+                                                <div className="flex-1 h-1 bg-slate-800/50 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-sky-500 progress" style={{ width: `${playerState.durationMs ? (playerState.position/playerState.durationMs)*100 : 0}%` }}></div>
+                                                </div>
+                                                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow"></div>
+                                            </div>
+                                            <div className="flex justify-between text-[12px] text-slate-400 font-mono">
+                                                <span>{formatTime(playerState.position)}</span><span>{formatTime(playerState.durationMs)}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-4 px-4">
+                                                <button onClick={() => sendAction('loop')} className="text-slate-400 hover:text-white transition text-xl">
+                                                    🔁 {playerState.loopMode === 1 ? '(Track)' : playerState.loopMode === 2 ? '(Queue)' : ''}
+                                                </button>
+                                                <button onClick={() => sendAction('pause')} className="w-14 h-14 bg-sky-500 text-slate-900 rounded-full text-3xl flex items-center justify-center hover:brightness-110 transition shadow-lg">
+                                                    ⏸️
+                                                </button>
+                                                <button onClick={() => sendAction('skip')} className="text-slate-400 hover:text-white transition text-xl">⏭️</button>
+                                                <button onClick={() => sendAction('stop')} className="text-red-400 hover:text-red-300 transition text-xl">⏹️</button>
+                                            </div>
+                                            <div className="flex items-center gap-3 px-4">
+                                                <span className="text-[11px] text-slate-400 uppercase tracking-wider">Volume</span>
+                                                <input type="range" min="0" max="100" value={playerState.volume} onChange={(e) => sendAction('volume', Number(e.target.value))} className="w-24 accent-sky-500" />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center py-20 text-center">
+                                            <div className="w-24 h-24 bg-slate-800/50 rounded-full flex items-center justify-center mb-4">
+                                                <Icons.Music className="text-slate-500" size={48} />
+                                            </div>
+                                            <h3 className="text-lg font-medium text-white mb-2">Nothing playing</h3>
+                                            <p className="text-sm text-slate-500">Join a voice channel or search above to play something.</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Queue */}
+                                <div className="glass p-5 rounded-2xl">
+                                    <h3 className="font-semibold text-sm mb-3">Queue</h3>
+                                    <div className="space-y-2">
+                                        {playerState && playerState.queue.length > 0 ? playerState.queue.map((t, i) => (
+                                            <div key={i} className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-xs group">
+                                                <span className="flex items-center gap-2 truncate pr-3">
+                                                    <span className="w-4 text-slate-500">{i+1}.</span> {t.title}
+                                                </span>
+                                                <span className="text-slate-400 shrink-0">{t.duration}</span>
+                                            </div>
+                                        )) : <div className="text-xs text-slate-500 text-center py-4">Queue is empty.</div>}
+                                    </div>
+                                </div>
+                            </section>
+                        ) : (
+                        <>
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6">
                             <StatCard title="Total Guilds" value={data.totalGuilds} icon="LayoutGrid" color="sky" />
                             <StatCard title="Active Players" value={data.activePlayers} icon="Play" color="green" />
@@ -340,6 +547,8 @@
                                 </section>
                             </div>
                         </div>
+                        </>
+                        )}
                     </main>
                     
                     {/* Sidebar Overlay for Mobile */}

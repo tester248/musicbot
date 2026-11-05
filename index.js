@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, ActivityType, PermissionFlagsBits } = require('discord.js');
 const { Shoukaku, Connectors } = require('shoukaku');
 const SpotifyWebApi = require('spotify-web-api-node');
 const Genius = require('genius-lyrics');
@@ -9,6 +9,7 @@ const MusicPlayer = require('./src/MusicPlayer');
 const PlaybackManager = require('./src/PlaybackManager');
 const CommandHandler = require('./src/CommandHandler');
 const Dashboard = require('./src/Dashboard');
+const { JsonStore } = require('./src/storage');
 
 // Catch unhandled rejections and exceptions from Shoukaku internal errors to prevent process crash
 process.on('unhandledRejection', (error) => {
@@ -79,13 +80,18 @@ class MusicBot {
         // Initialize managers
         this.queueManager = new QueueManager();
         this.musicPlayer = new MusicPlayer(this.spotify, this.shoukaku);
-        this.dashboard = new Dashboard(this.client, this.queueManager, this.shoukaku);
         this.playbackManager = new PlaybackManager(
             this.shoukaku,
             this.queueManager,
             this.musicPlayer,
-            this.dashboard
+            null
         );
+        this.dashboard = new Dashboard(this.client, this.queueManager, this.shoukaku, null, this.playbackManager);
+
+        // JSON persistence stores (guild settings + playlists)
+        this.settingsStore = new JsonStore('settings.json');
+        this.playlistsStore = new JsonStore('playlists.json');
+
         this.commandHandler = new CommandHandler(
             this.queueManager,
             this.musicPlayer,
@@ -93,8 +99,11 @@ class MusicBot {
             this.spotify,
             this.geniusClient,
             this.dashboard,
-            this.playbackManager
+            this.playbackManager,
+            this.settingsStore,
+            this.playlistsStore
         );
+        this.dashboard.commandHandler = this.commandHandler;
 
         // Spotify Token Refresh
         this.refreshSpotifyToken();
@@ -118,6 +127,7 @@ class MusicBot {
     }
 
     setupShoukaku() {
+        this.shoukaku.on('debug', (name, info) => console.log(`[shoukaku:debug] ${name}: ${info}`));
         this.shoukaku.on('error', (_, error) => console.error('Shoukaku: Error', error));
         this.shoukaku.on('close', (name, code, reason) => {
             console.warn(`Shoukaku: Closed ${name} ${code} ${reason}`);
@@ -139,82 +149,115 @@ class MusicBot {
         });
 
         this.client.on('interactionCreate', async (interaction) => {
-            if (!interaction.isChatInputCommand()) return;
-
-            const command = interaction.commandName;
-
             try {
-                switch (command) {
-                    case 'play':
-                        await this.commandHandler.handlePlay(interaction, interaction.options.getString('query'));
-                        break;
-                    case 'skip':
-                        await this.commandHandler.handleSkip(interaction);
-                        break;
-                    case 'stop':
-                        await this.commandHandler.handleStop(interaction);
-                        break;
-                    case 'pause':
-                        await this.commandHandler.handlePause(interaction);
-                        break;
-                    case 'resume':
-                        await this.commandHandler.handleResume(interaction);
-                        break;
-                    case 'queue': {
-                        const queueSubcommand = interaction.options.getSubcommand();
-                        if (queueSubcommand === 'show') {
-                            await this.commandHandler.handleQueue(interaction, null, interaction.options.getInteger('page'));
-                        } else if (queueSubcommand === 'remove') {
-                            await this.commandHandler.handleQueue(interaction, 'remove', interaction.options.getInteger('position'));
-                        } else if (queueSubcommand === 'move') {
-                            await this.commandHandler.handleQueue(interaction, 'move', interaction.options.getInteger('from'), interaction.options.getInteger('to'));
+                // ---- Slash commands ----
+                if (interaction.isChatInputCommand()) {
+                    const command = interaction.commandName;
+                    switch (command) {
+                        case 'play':
+                            await this.commandHandler.handlePlay(interaction, interaction.options.getString('query'));
+                            break;
+                        case 'skip':
+                            await this.commandHandler.handleSkip(interaction);
+                            break;
+                        case 'stop':
+                            await this.commandHandler.handleStop(interaction);
+                            break;
+                        case 'pause':
+                            await this.commandHandler.handlePause(interaction);
+                            break;
+                        case 'resume':
+                            await this.commandHandler.handleResume(interaction);
+                            break;
+                        case 'queue': {
+                            const queueSubcommand = interaction.options.getSubcommand(false);
+                            if (queueSubcommand === 'remove') {
+                                await this.commandHandler.handleQueue(interaction, 'remove', interaction.options.getInteger('position'));
+                            } else if (queueSubcommand === 'move') {
+                                await this.commandHandler.handleQueue(interaction, 'move', interaction.options.getInteger('from'), interaction.options.getInteger('to'));
+                            } else {
+                                // 'show' or no subcommand specified → show the queue
+                                await this.commandHandler.handleQueue(interaction, null, interaction.options.getInteger('page'));
+                            }
+                            break;
                         }
-                        break;
+                        case 'nowplaying':
+                            await this.commandHandler.handleNowPlaying(interaction);
+                            break;
+                        case 'volume':
+                            await this.commandHandler.handleVolume(interaction, interaction.options.getInteger('level'));
+                            break;
+                        case 'join':
+                            await this.commandHandler.handleJoin(interaction);
+                            break;
+                        case 'leave':
+                            await this.commandHandler.handleLeave(interaction);
+                            break;
+                        case 'clear':
+                            await this.commandHandler.handleClear(interaction);
+                            break;
+                        case 'shuffle':
+                            await this.commandHandler.handleShuffle(interaction);
+                            break;
+                        case 'loop':
+                            await this.commandHandler.handleLoop(interaction, interaction.options.getString('mode'));
+                            break;
+                        case 'seek':
+                            await this.commandHandler.handleSeek(interaction, interaction.options.getInteger('seconds'));
+                            break;
+                        case 'lyrics':
+                            await this.commandHandler.handleLyrics(interaction, interaction.options.getString('query'));
+                            break;
+                        case 'filter':
+                            await this.commandHandler.handleFilter(interaction, interaction.options.getString('mode'), interaction.options.getNumber('value'));
+                            break;
+                        case 'controller':
+                            await this.commandHandler.handleController(interaction, interaction.options.getSubcommand(), interaction.options.getChannel('channel'));
+                            break;
+                        case 'playlist':
+                            await this.commandHandler.handlePlaylist(
+                                interaction,
+                                interaction.options.getSubcommand(),
+                                interaction.options.getString('name'),
+                                interaction.options.getString('query'),
+                                interaction.options.getInteger('position')
+                            );
+                            break;
+                        case 'help':
+                            await this.commandHandler.handleHelp(interaction);
+                            break;
                     }
-                    case 'nowplaying':
-                        await this.commandHandler.handleNowPlaying(interaction);
-                        break;
-                    case 'volume':
-                        await this.commandHandler.handleVolume(interaction, interaction.options.getInteger('level'));
-                        break;
-                    case 'join':
-                        await this.commandHandler.handleJoin(interaction);
-                        break;
-                    case 'leave':
-                        await this.commandHandler.handleLeave(interaction);
-                        break;
-                    case 'clear':
-                        await this.commandHandler.handleClear(interaction);
-                        break;
-                    case 'shuffle':
-                        await this.commandHandler.handleShuffle(interaction);
-                        break;
-                    case 'loop':
-                        await this.commandHandler.handleLoop(interaction, interaction.options.getString('mode'));
-                        break;
-                    case 'seek':
-                        await this.commandHandler.handleSeek(interaction, interaction.options.getInteger('seconds'));
-                        break;
-                    case 'lyrics':
-                        await this.commandHandler.handleLyrics(interaction, interaction.options.getString('query'));
-                        break;
-                    case 'help':
-                        await this.commandHandler.handleHelp(interaction);
-                        break;
+                    return;
+                }
+
+                // ---- Interactive components (buttons, select menus) ----
+                if (interaction.isMessageComponent()) {
+                    await this.commandHandler.handleComponent(interaction);
+                    return;
+                }
+
+                // ---- Autocomplete ----
+                if (interaction.isAutocomplete()) {
+                    await this.commandHandler.handleAutocomplete(interaction);
                 }
             } catch (error) {
                 console.error('Interaction error:', error);
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
-                } else {
-                    await interaction.editReply('❌ An error occurred!');
-                }
+                try {
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                    } else {
+                        await interaction.editReply('❌ An error occurred!');
+                    }
+                } catch {}
             }
         });
 
         // Prefix command support
         this.client.on('messageCreate', async (message) => {
             if (message.author.bot) return;
+
+            // Controller channel: non-command messages become play requests
+            if (await this.commandHandler.handleControllerMessage(message)) return;
 
             const prefix = process.env.PREFIX || '!';
             if (!message.content.startsWith(prefix)) return;
@@ -295,6 +338,24 @@ class MusicBot {
                     case 'ly':
                         await this.commandHandler.handleLyrics(message, args.join(' '));
                         break;
+                    case 'filter':
+                        await this.commandHandler.handleFilter(message, args[0], parseFloat(args[1]));
+                        break;
+                    case 'controller':
+                        await this.commandHandler.handleController(message, args[0], message.mentions.channels.first());
+                        break;
+                    case 'playlist':
+                    case 'pl': {
+                        const [act, ...rest] = args;
+                        await this.commandHandler.handlePlaylist(
+                            message,
+                            act ? act.toLowerCase() : 'list',
+                            rest[0],
+                            rest.slice(1).join(' '),
+                            parseInt(rest[1])
+                        );
+                        break;
+                    }
                     case 'help':
                     case 'h':
                         await this.commandHandler.handleHelp(message);
@@ -315,7 +376,8 @@ class MusicBot {
                 .addStringOption(option =>
                     option.setName('query')
                         .setDescription('Song name, YouTube URL, or Spotify URL')
-                        .setRequired(true)),
+                        .setRequired(true)
+                        .setAutocomplete(true)),
             new SlashCommandBuilder()
                 .setName('skip')
                 .setDescription('Skip the current song'),
@@ -415,15 +477,75 @@ class MusicBot {
                         .setDescription('Song name')
                         .setRequired(false)),
             new SlashCommandBuilder()
+                .setName('playlist')
+                .setDescription('Manage your saved playlists')
+                .addSubcommand(sc => sc.setName('create').setDescription('Create a playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true)))
+                .addSubcommand(sc => sc.setName('delete').setDescription('Delete a playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true)))
+                .addSubcommand(sc => sc.setName('list').setDescription('List your playlists'))
+                .addSubcommand(sc => sc.setName('view').setDescription('View a playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true)))
+                .addSubcommand(sc => sc.setName('add').setDescription('Add a song to a playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true)).addStringOption(o => o.setName('query').setDescription('Song name or URL').setRequired(true)))
+                .addSubcommand(sc => sc.setName('remove').setDescription('Remove a song from a playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true)).addIntegerOption(o => o.setName('position').setDescription('Track number').setRequired(true).setMinValue(1)))
+                .addSubcommand(sc => sc.setName('play').setDescription('Play a saved playlist').addStringOption(o => o.setName('name').setDescription('Playlist name').setRequired(true))),
+            new SlashCommandBuilder()
+                .setName('controller')
+                .setDescription('Manage the controller channel')
+                .addSubcommand(sc => sc.setName('setup').setDescription('Set the controller channel').addChannelOption(o => o.setName('channel').setDescription('Text channel').setRequired(true)))
+                .addSubcommand(sc => sc.setName('disable').setDescription('Disable the controller channel'))
+                .addSubcommand(sc => sc.setName('view').setDescription('Show the current controller channel')),
+            new SlashCommandBuilder()
+                .setName('filter')
+                .setDescription('Apply an audio filter')
+                .addStringOption(o => o.setName('mode').setDescription('Filter').setRequired(true)
+                    .addChoices(
+                        { name: 'Bassboost', value: 'bassboost' },
+                        { name: 'Nightcore', value: 'nightcore' },
+                        { name: '8D', value: '8d' },
+                        { name: 'Karaoke', value: 'karaoke' },
+                        { name: 'Vibrato', value: 'vibrato' },
+                        { name: 'Speed', value: 'speed' },
+                        { name: 'Pitch', value: 'pitch' },
+                        { name: 'Reset', value: 'reset' }))
+                .addNumberOption(o => o.setName('value').setDescription('Value (for speed/pitch)').setRequired(false)),
+            new SlashCommandBuilder()
                 .setName('help')
                 .setDescription('Show available commands')
         ];
 
         try {
             console.log('🔄 Registering slash commands...');
-            await this.client.application.commands.set([]);
-            await this.client.application.commands.set(commands);
-            console.log('✅ Slash commands registered successfully!');
+            const devGuildId = process.env.DEV_GUILD_ID;
+            let target = null;
+
+            if (devGuildId) {
+                target = await this.client.guilds.fetch(devGuildId);
+            } else {
+                // Auto-detect a guild the bot can manage (for dev/debugging so
+                // command updates apply instantly without manual server IDs).
+                target = this.client.guilds.cache.find(g => g.members.me?.permissions?.has(PermissionFlagsBits.ManageGuild)) || null;
+            }
+
+            // ---- Cleanup: remove stale registrations so there's exactly one
+            // set of commands (global + every guild except the dev target).
+            // This clears duplicates that accumulated from earlier global and
+            // multi-guild dev registrations.
+            try {
+                await this.client.application.commands.set([]);
+                const clients = this.client.guilds.cache.filter(g => !target || g.id !== target.id);
+                for (const [, g] of clients) {
+                    try { await g.commands.set([]); } catch {}
+                }
+            } catch (cleanupErr) {
+                console.error('Slash cleanup warning:', cleanupErr.message);
+            }
+
+            // ---- Register fresh to the target (dev guild, or auto-detected one)
+            if (target) {
+                await target.commands.set(commands);
+                console.log(`✅ Slash commands registered to guild ${target.name}!`);
+            } else {
+                await this.client.application.commands.set(commands);
+                console.log('✅ Slash commands registered globally!');
+            }
         } catch (error) {
             console.error('Error registering slash commands:', error);
         }

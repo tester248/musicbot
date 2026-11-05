@@ -7,37 +7,64 @@ class MusicPlayer {
     }
 
     async searchTrack(node, query, isUrl) {
-        const searchType = isUrl ? '' : (query.startsWith('scsearch:') ? '' : 'ytsearch:');
-        let result = await node.rest.resolve(isUrl ? query : `${searchType}${query}`);
-
-        // Fallback mechanism: YouTube → Spotify → SoundCloud
-        if (!result || result.loadType === 'empty' || result.loadType === 'error') {
-            console.log(`❌ YouTube search failed for "${query}", trying Spotify...`);
-
-            // Try Spotify search as fallback
+        // Direct URL: pass straight through (URLs already target a specific source).
+        if (isUrl) {
             try {
-                const spotifyResults = await this.spotify.searchTracks(query, { limit: 1 });
-                if (spotifyResults.body.tracks.items.length > 0) {
-                    const track = spotifyResults.body.tracks.items[0];
-                    const spotifyQuery = `${track.name} ${track.artists[0].name}`;
-                    result = await node.rest.resolve(`ytsearch:${spotifyQuery}`);
-                    console.log(`✅ Found via Spotify: ${spotifyQuery}`);
-                }
-            } catch (spotifyError) {
-                console.error('Spotify fallback failed:', spotifyError);
+                const result = await node.rest.resolve(query);
+                return this.isUsable(result) ? result : null;
+            } catch {
+                return null;
             }
         }
 
-        // If still no results, try SoundCloud
-        if (!result || result.loadType === 'empty' || result.loadType === 'error') {
-            console.log(`❌ Spotify fallback failed for "${query}", trying SoundCloud...`);
-            result = await node.rest.resolve(`scsearch:${query}`);
-            if (result && result.loadType !== 'empty' && result.loadType !== 'error') {
-                console.log(`✅ Found via SoundCloud`);
+        // Search fallback chain (YouTube remains primary):
+        //   YouTube → YouTube Music → Spotify→YouTube → SoundCloud → Bandcamp
+        for (const prefix of ['ytsearch', 'ytmsearch']) {
+            const result = await this.tryResolve(node, prefix, query);
+            if (result) {
+                console.log(`✅ Found via ${prefix}`);
+                return result;
             }
         }
 
-        return result;
+        const spotifyResult = await this.trySpotifyFallback(node, query);
+        if (spotifyResult) return spotifyResult;
+
+        for (const prefix of ['scsearch', 'bcsearch']) {
+            const result = await this.tryResolve(node, prefix, query);
+            if (result) {
+                console.log(`✅ Found via ${prefix}`);
+                return result;
+            }
+        }
+
+        return null;
+    }
+
+    isUsable(result) {
+        return !!result && result.loadType !== 'empty' && result.loadType !== 'error';
+    }
+
+    async tryResolve(node, prefix, query) {
+        try {
+            const result = await node.rest.resolve(`${prefix}:${query}`);
+            if (this.isUsable(result)) return result;
+        } catch {}
+        return null;
+    }
+
+    async trySpotifyFallback(node, query) {
+        try {
+            const sp = await this.spotify.searchTracks(query, { limit: 1 });
+            const track = sp?.body?.tracks?.items?.[0];
+            if (!track || !track.artists || !track.artists[0]) return null;
+            const q = `${track.name} ${track.artists[0].name}`;
+            const result = await this.tryResolve(node, 'ytsearch', q);
+            if (result) console.log('✅ Found via Spotify→YouTube');
+            return result;
+        } catch {
+            return null;
+        }
     }
 
     parseSearchResult(result) {
@@ -83,17 +110,36 @@ class MusicPlayer {
                 const data = await this.spotify.getPlaylist(id);
                 const playlist = data.body;
 
-                if (playlist.tracks.items.length > 0) {
-                    const item = playlist.tracks.items[0];
-                    if (item.track) {
-                        return {
-                            query: `${item.track.name} ${item.track.artists[0].name}`,
-                            isUrl: false,
-                            playlistName: playlist.name
-                        };
+                // Fetch the whole playlist (paginated), capped for safety.
+                const MAX_PLAYLIST = 25;
+                const out = [];
+
+                const pushItems = (list) => {
+                    for (const item of list) {
+                        if (item && item.track && item.track.name) {
+                            out.push({
+                                name: item.track.name,
+                                artist: (item.track.artists[0] && item.track.artists[0].name) || 'Unknown'
+                            });
+                            if (out.length >= MAX_PLAYLIST) return true;
+                        }
                     }
+                    return false;
+                };
+
+                pushItems(playlist.tracks.items);
+                let offset = playlist.tracks.items.length;
+                const total = playlist.tracks.total || offset;
+
+                while (out.length < MAX_PLAYLIST && total > offset) {
+                    const more = await this.spotify.getPlaylistTracks(id, { offset, limit: 50 });
+                    if (!more.body.items.length) break;
+                    if (pushItems(more.body.items)) break;
+                    offset += more.body.items.length;
                 }
-                return { query: null, isUrl: false, playlistName: null, error: 'Playlist is empty!' };
+
+                if (!out.length) return { error: 'Playlist is empty!' };
+                return { isPlaylist: true, playlistName: playlist.name, playlistTracks: out };
             }
         } catch (error) {
             console.error('Spotify error:', error);
