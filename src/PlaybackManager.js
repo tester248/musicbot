@@ -9,6 +9,9 @@ class PlaybackManager {
         this.nodeScores = new Map();
         this.preferredNodeName = null;
         this.badNodes = new Set();
+        this.nodeFailures = new Map();
+        this.badNodeRetestTimer = null;
+        this.RETEST_INTERVAL = 10 * 60 * 1000; // 10 minutes
     }
 
     /**
@@ -64,16 +67,69 @@ class PlaybackManager {
             
             if (result && result.loadType !== 'error' && result.loadType !== 'empty') {
                 console.log(`✅ Node ${name} passed YouTube test`);
+                this.badNodes.delete(name);
+                this.nodeFailures.set(name, 0);
                 this.updateNodeScore(name, 100);
                 if (!this.preferredNodeName) this.preferredNodeName = name;
             } else {
                 console.log(`⚠️ Node ${name} failed YouTube test (LoadType: ${result?.loadType})`);
                 this.updateNodeScore(name, -50);
+                this.registerNodeFailure(name, 'failed YouTube test');
             }
         } catch (err) {
             console.log(`⚠️ Node ${name} threw error during test: ${err.message}`);
-            this.badNodes.add(name);
-            this.updateNodeScore(name, -100);
+            this.quarantineNode(name, 'test threw error');
+        }
+    }
+
+    /**
+     * Increment a node's failure count and quarantine it after repeated failures.
+     */
+    registerNodeFailure(name, reason) {
+        const fails = (this.nodeFailures.get(name) || 0) + 1;
+        this.nodeFailures.set(name, fails);
+        if (fails >= 3) this.quarantineNode(name, `${reason} x${fails}`);
+    }
+
+    /**
+     * Quarantine a node: stop routing new loads to it and schedule a retest.
+     */
+    quarantineNode(name, reason) {
+        if (this.badNodes.has(name)) return;
+        console.warn(`🛑 Quarantining node ${name} (${reason})`);
+        this.badNodes.add(name);
+        this.nodeFailures.set(name, (this.nodeFailures.get(name) || 0) + 1);
+        this.updateNodeScore(name, -100);
+        if (this.preferredNodeName === name) this.preferredNodeName = null;
+        this.startBadNodeSweep();
+    }
+
+    /**
+     * Called from the Shoukaku 'close' event. Quarantine nodes that repeatedly
+     * drop the connection (code 1006) instead of letting them hot-cycle forever.
+     */
+    onNodeClose(name, code) {
+        if (code === 1006) {
+            const fails = (this.nodeFailures.get(name) || 0) + 1;
+            this.nodeFailures.set(name, fails);
+            this.updateNodeScore(name, -10);
+            if (fails >= 5) this.quarantineNode(name, `abnormal closure x${fails}`);
+        }
+    }
+
+    startBadNodeSweep() {
+        if (this.badNodeRetestTimer) return;
+        this.badNodeRetestTimer = setInterval(() => this.retestBadNodes(), this.RETEST_INTERVAL);
+    }
+
+    /**
+     * Periodically retest quarantined nodes so recovered nodes are reused.
+     */
+    async retestBadNodes() {
+        for (const name of [...this.badNodes]) {
+            const node = this.shoukaku.nodes.get(name);
+            if (!node || node.state !== 1) continue;
+            await this.testNode(name);
         }
     }
 
@@ -201,6 +257,11 @@ class PlaybackManager {
      * Attach listeners to a player
      */
     setupPlayerEvents(player, guildId, textChannel) {
+        // Guard against double-binding listeners on the same player (e.g. when a
+        // connection is reused across /play and /join commands)
+        if (player.__musicbotEventsBound) return;
+        player.__musicbotEventsBound = true;
+
         const queue = this.queueManager.getQueue(guildId);
         if (textChannel) queue.textChannel = textChannel;
 

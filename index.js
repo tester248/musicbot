@@ -32,12 +32,6 @@ const Nodes = [
         secure: false
     },
     {
-        name: 'Jirayu',
-        url: 'lavalink.jirayu.net:443',
-        auth: 'youshallnotpass',
-        secure: true
-    },
-    {
         name: 'Millohost',
         url: 'lava-v4.millohost.my.id:443',
         auth: 'https://discord.gg/mjS5J2K3ep',
@@ -125,7 +119,10 @@ class MusicBot {
 
     setupShoukaku() {
         this.shoukaku.on('error', (_, error) => console.error('Shoukaku: Error', error));
-        this.shoukaku.on('close', (name, code, reason) => console.warn(`Shoukaku: Closed ${name} ${code} ${reason}`));
+        this.shoukaku.on('close', (name, code, reason) => {
+            console.warn(`Shoukaku: Closed ${name} ${code} ${reason}`);
+            this.playbackManager.onNodeClose(name, code);
+        });
         this.shoukaku.on('disconnect', (name, players, moved) => console.warn(`Shoukaku: Disconnected ${name} ${players} ${moved}`));
         this.shoukaku.on('ready', async (name) => {
             console.log(`✅ Shoukaku: Node ${name} is ready`);

@@ -73,23 +73,28 @@ class CommandHandler {
 
         const queue = this.queueManager.getQueue(guild.id);
 
-        if (!queue.player) {
+        // Reuse an existing connection if Shoukaku already has a player for this guild
+        let player = queue.player || this.shoukaku.players.get(guild.id);
+        if (!player) {
             try {
-                const player = await this.shoukaku.joinVoiceChannel({
+                player = await this.shoukaku.joinVoiceChannel({
                     guildId: guild.id,
                     channelId: member.voice.channel.id,
                     shardId: guild.shardId || 0,
                     deaf: true,
                     nodeName: node.name
                 });
-
-                this.playbackManager.setupPlayerEvents(player, guild.id, interaction.channel);
-                queue.player = player;
             } catch (e) {
-                console.error('Failed to join voice:', e);
-                const reply = '❌ Failed to join voice channel!';
-                return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+                // Race: a connection may have been established between our check and the join
+                player = this.shoukaku.players.get(guild.id);
+                if (!player) {
+                    console.error('Failed to join voice:', e);
+                    const reply = '❌ Failed to join voice channel!';
+                    return isSlash ? interaction.editReply(reply) : interaction.reply(reply);
+                }
             }
+            this.playbackManager.setupPlayerEvents(player, guild.id, interaction.channel);
+            queue.player = player;
         }
 
         queue.textChannel = interaction.channel;
@@ -250,41 +255,63 @@ class CommandHandler {
         const member = interaction.member;
         if (!member.voice.channel) return isSlash ? interaction.reply({ content: '❌ You need to be in a voice channel!', ephemeral: true }) : interaction.reply('❌ You need to be in a voice channel!');
 
-        const queue = this.queueManager.getQueue(interaction.guild.id);
-        if (!queue.player) {
-            try {
-                const node = this.playbackManager.getWorkingNode();
-                const player = await this.shoukaku.joinVoiceChannel({
-                    guildId: interaction.guild.id,
-                    channelId: member.voice.channel.id,
-                    shardId: interaction.guild.shardId || 0,
-                    deaf: true,
-                    nodeName: node?.name
-                });
+        const guildId = interaction.guild.id;
+        const queue = this.queueManager.getQueue(guildId);
 
-                this.playbackManager.setupPlayerEvents(player, interaction.guild.id, interaction.channel);
+        // Ground truth: use Shoukaku's player registry, not queue.player
+        const existing = queue.player || this.shoukaku.players.get(guildId);
+        if (existing) {
+            queue.player = existing;
+            this.playbackManager.setupPlayerEvents(existing, guildId, interaction.channel);
+            return interaction.reply('✅ Already connected!');
+        }
+
+        try {
+            const node = this.playbackManager.getWorkingNode();
+            if (!node) return interaction.reply('❌ No Lavalink node available!');
+
+            const player = await this.shoukaku.joinVoiceChannel({
+                guildId,
+                channelId: member.voice.channel.id,
+                shardId: interaction.guild.shardId || 0,
+                deaf: true,
+                nodeName: node.name
+            });
+
+            this.playbackManager.setupPlayerEvents(player, guildId, interaction.channel);
+            queue.player = player;
+            interaction.reply(`✅ Joined ${member.voice.channel.name}!`);
+        } catch (e) {
+            console.error(e);
+            // Recover if a connection actually exists despite our earlier check
+            const player = this.shoukaku.players.get(guildId);
+            if (player) {
                 queue.player = player;
-                interaction.reply(`✅ Joined ${member.voice.channel.name}!`);
-            } catch (e) {
-                console.error(e);
-                interaction.reply('❌ Failed to join!');
+                this.playbackManager.setupPlayerEvents(player, guildId, interaction.channel);
+                return interaction.reply('✅ Already connected!');
             }
-        } else {
-            interaction.reply('✅ Already connected!');
+            interaction.reply('❌ Failed to join!');
         }
     }
 
     async handleLeave(interaction) {
-        const isSlash = interaction.isChatInputCommand?.() ?? false;
-        const queue = this.queueManager.getQueue(interaction.guild.id);
+        const guildId = interaction.guild.id;
+        const queue = this.queueManager.getQueue(guildId);
 
-        if (queue.player) {
-            this.queueManager.clearQueue(interaction.guild.id);
-            queue.playing = false;
-            queue.currentSong = null;
-            this.shoukaku.leaveVoiceChannel(interaction.guild.id);
-            queue.player = null;
+        this.queueManager.clearQueue(guildId);
+        queue.playing = false;
+        queue.currentSong = null;
+        queue.previousSong = null;
+
+        const player = this.shoukaku.players.get(guildId);
+        if (player) {
+            try {
+                await this.shoukaku.leaveVoiceChannel(guildId);
+            } catch (e) {
+                console.error('Error leaving voice channel:', e);
+            }
         }
+        queue.player = null;
 
         interaction.reply('👋 Left!');
     }
