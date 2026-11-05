@@ -73,8 +73,17 @@ class CommandHandler {
 
         const queue = this.queueManager.getQueue(guild.id);
 
-        // Reuse an existing connection if Shoukaku already has a player for this guild
+        // Reuse an existing connection if Shoukaku already has a player for this guild.
+        // Note: Shoukaku tracks live voice connections separately from players, so a
+        // stale connection can linger without a player and make joinVoiceChannel throw.
         let player = queue.player || this.shoukaku.players.get(guild.id);
+        if (!player && this.shoukaku.connections.has(guild.id)) {
+            try {
+                await this.shoukaku.leaveVoiceChannel(guild.id);
+            } catch (cleanupErr) {
+                console.error('Error clearing stale voice connection:', cleanupErr);
+            }
+        }
         if (!player) {
             try {
                 player = await this.shoukaku.joinVoiceChannel({
@@ -258,12 +267,23 @@ class CommandHandler {
         const guildId = interaction.guild.id;
         const queue = this.queueManager.getQueue(guildId);
 
-        // Ground truth: use Shoukaku's player registry, not queue.player
+        // Ground truth: Shoukaku keeps voice connections separate from players; a
+        // connection can linger without a player (e.g. after a node died) and make
+        // joinVoiceChannel throw 'already have an existing connection'.
         const existing = queue.player || this.shoukaku.players.get(guildId);
         if (existing) {
             queue.player = existing;
             this.playbackManager.setupPlayerEvents(existing, guildId, interaction.channel);
             return interaction.reply('✅ Already connected!');
+        }
+
+        // Stale connection with no player → clear it so we can reconnect cleanly
+        if (this.shoukaku.connections.has(guildId)) {
+            try {
+                await this.shoukaku.leaveVoiceChannel(guildId);
+            } catch (cleanupErr) {
+                console.error('Error clearing stale voice connection:', cleanupErr);
+            }
         }
 
         try {
@@ -303,8 +323,9 @@ class CommandHandler {
         queue.currentSong = null;
         queue.previousSong = null;
 
-        const player = this.shoukaku.players.get(guildId);
-        if (player) {
+        // Tear down the voice connection whenever Shoukaku tracks one. A connection can
+        // exist without a player, so guard on both maps, not just the player.
+        if (this.shoukaku.connections.has(guildId) || this.shoukaku.players.has(guildId)) {
             try {
                 await this.shoukaku.leaveVoiceChannel(guildId);
             } catch (e) {
