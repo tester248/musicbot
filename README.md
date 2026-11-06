@@ -99,6 +99,9 @@ LAVALINK_HOST=localhost # optional, defaults to localhost
 
 - **Playback Failures**: The bot automatically retries failed tracks up to 4 times using different clients. If that fails, it searches Spotify/SoundCloud as a fallback.
 - **Lavalink Connection**: The bot connects to local and public nodes. If one fails, it uses another.
+- **Slash commands missing in a server**: Leave `DEV_GUILD_ID` unset in production so commands
+  are registered globally. Global command updates can take up to an hour to appear in every server.
+  Set `DEV_GUILD_ID` only during development when instant guild-scoped updates are needed.
 
 ## Deploying to Koyeb (single‑container) 🚀
 

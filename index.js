@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, ActivityType, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, ActivityType } = require('discord.js');
 const { Shoukaku, Connectors } = require('shoukaku');
 const SpotifyWebApi = require('spotify-web-api-node');
 const Genius = require('genius-lyrics');
@@ -518,10 +518,6 @@ class MusicBot {
 
             if (devGuildId) {
                 target = await this.client.guilds.fetch(devGuildId);
-            } else {
-                // Auto-detect a guild the bot can manage (for dev/debugging so
-                // command updates apply instantly without manual server IDs).
-                target = this.client.guilds.cache.find(g => g.members.me?.permissions?.has(PermissionFlagsBits.ManageGuild)) || null;
             }
 
             // ---- Cleanup: remove stale registrations so there's exactly one
@@ -538,7 +534,8 @@ class MusicBot {
                 console.error('Slash cleanup warning:', cleanupErr.message);
             }
 
-            // ---- Register fresh to the target (dev guild, or auto-detected one)
+            // ---- Register to the development guild when explicitly configured;
+            // otherwise register globally for all servers in production.
             if (target) {
                 await target.commands.set(commands);
                 console.log(`✅ Slash commands registered to guild ${target.name}!`);
