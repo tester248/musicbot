@@ -2,11 +2,12 @@ const { EmbedBuilder } = require('discord.js');
 const { nowPlayingPayload } = require('./ui');
 
 class PlaybackManager {
-    constructor(shoukaku, queueManager, musicPlayer, dashboard) {
+    constructor(shoukaku, queueManager, musicPlayer, dashboard, configuredNodes = []) {
         this.shoukaku = shoukaku;
         this.queueManager = queueManager;
         this.musicPlayer = musicPlayer;
         this.dashboard = dashboard;
+        this.configuredNodes = configuredNodes; // canonical node list (for pool restoration)
         this.nodeScores = new Map();
         this.preferredNodeName = null;
         this.badNodes = new Set();
@@ -47,7 +48,22 @@ class PlaybackManager {
                 return countA - countB;
             });
 
-        const node = availableNodes[0] || null;
+        let node = availableNodes[0] || null;
+
+        // Self-healing watchdog: if no node is available, log a full diagnostic
+        // and attempt to restore dropped nodes so the pool can refill.
+        if (!node) {
+            const states = [...this.shoukaku.nodes.values()].map(n => `${n.name}(state=${n.state},bad=${this.badNodes.has(n.name)})`);
+            const failures = [...this.nodeFailures.entries()].map(([k, v]) => `${k}=${v}`).join(', ');
+            console.warn(`⚠️ No working node available. nodes=[${states.join(', ')}] failures=[${failures}]`);
+            this.ensureNodePool();
+            const after = [...this.shoukaku.nodes.values()]
+                .filter(n => n.state === 1 && !this.badNodes.has(n.name))
+                .sort((a, b) => (this.nodeScores.get(b.name) || 0) - (this.nodeScores.get(a.name) || 0));
+            node = after[0] || null;
+            if (node) console.log(`✅ Node pool recovered, using ${node.name}`);
+        }
+
         if (node && node.name !== this.preferredNodeName) {
             this.preferredNodeName = node.name;
             console.log(`🌟 Preferred node updated to: ${node.name}`);
@@ -123,13 +139,45 @@ class PlaybackManager {
     }
 
     /**
-     * Periodically retest quarantined nodes so recovered nodes are reused.
+     * Re-add any configured node that Shoukaku dropped from its internal map
+     * (Shoukaku removes nodes on permanent disconnect). Without this, a dropped
+     * node can never be retested and the pool permanently dries up.
+     */
+    ensureNodePool() {
+        for (const option of this.configuredNodes) {
+            if (!this.shoukaku.nodes.has(option.name)) {
+                try {
+                    console.warn(`♻️ Re-adding missing node ${option.name}`);
+                    this.shoukaku.addNode(option);
+                    this.badNodes.delete(option.name);
+                    this.nodeFailures.set(option.name, 0);
+                } catch (e) {
+                    console.error(`Failed to re-add node ${option.name}:`, e.message);
+                }
+            }
+        }
+    }
+
+    /**
+     * Periodically retest quarantined nodes so recovered nodes are reused, and
+     * restore nodes that were dropped from Shoukaku's map.
      */
     async retestBadNodes() {
+        // Restore any configured nodes Shoukaku dropped, so they can be tested again.
+        this.ensureNodePool();
+
         for (const name of [...this.badNodes]) {
             const node = this.shoukaku.nodes.get(name);
             if (!node || node.state !== 1) continue;
             await this.testNode(name);
+        }
+
+        // Slowly decay failure counts so transient hiccups don't accumulate
+        // unboundedly and quarantine healthy nodes over time.
+        for (const [name, fails] of this.nodeFailures) {
+            if (!this.badNodes.has(name) && fails > 0) {
+                this.nodeFailures.set(name, Math.max(0, fails - 1));
+            }
         }
     }
 

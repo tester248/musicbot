@@ -84,7 +84,8 @@ class MusicBot {
             this.shoukaku,
             this.queueManager,
             this.musicPlayer,
-            null
+            null,
+            Nodes
         );
         this.dashboard = new Dashboard(this.client, this.queueManager, this.shoukaku, null, this.playbackManager);
 
