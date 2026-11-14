@@ -105,6 +105,8 @@ class MusicBot {
             this.playlistsStore
         );
         this.dashboard.commandHandler = this.commandHandler;
+        // Let QueueManager recover stale voice sessions via PlaybackManager.
+        this.queueManager.onPlayError = (guildId, err) => this.playbackManager.onPlayError(guildId, err);
 
         // Spotify Token Refresh
         this.refreshSpotifyToken();

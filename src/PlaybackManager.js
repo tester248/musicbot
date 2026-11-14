@@ -302,6 +302,67 @@ class PlaybackManager {
     }
 
     /**
+     * Recover from a stale voice session ("Session null not found"). This happens
+     * when a node dies and the player's voice connection is orphaned. We recreate
+     * the connection + player and replay the current track.
+     */
+    async onPlayError(guildId, error) {
+        const msg = error?.message || '';
+        if (!msg.includes('Session null not found') && !msg.includes('404')) return;
+
+        console.warn(`🔁 Recovering stale voice session in guild ${guildId}: ${msg}`);
+        const queue = this.queueManager.getQueue(guildId);
+        const memberVoice = queue.player?.voice?.channelId;
+
+        // Destroy the broken player + connection.
+        try {
+            await this.shoukaku.leaveVoiceChannel(guildId);
+        } catch (e) {
+            console.error('leave failed during recovery:', e.message);
+        }
+        queue.player = null;
+        queue.playing = false;
+        const song = queue.currentSong;
+        queue.currentSong = null;
+
+        if (!memberVoice) {
+            console.warn('No voice channel to rejoin; dropping playback.');
+            return;
+        }
+
+        // Rejoin on the same channel with a healthy node.
+        const node = this.getWorkingNode();
+        if (!node) {
+            console.warn('No node available during recovery.');
+            return;
+        }
+        try {
+            const player = await this.shoukaku.joinVoiceChannel({
+                guildId,
+                channelId: memberVoice,
+                shardId: this.shoukaku.players.get(guildId)?.shardId || 0,
+                deaf: true,
+                nodeName: node.name,
+            });
+            this.setupPlayerEvents(player, guildId, queue.textChannel);
+            queue.player = player;
+        } catch (e) {
+            console.error('Rejoin failed during recovery:', e.message);
+            return;
+        }
+
+        // Requeue the current track and play.
+        if (song) {
+            queue.songs.unshift(song);
+        }
+        if (queue.songs.length > 0) {
+            await this.queueManager.playNext(guildId);
+        } else {
+            queue.playing = false;
+        }
+    }
+
+    /**
      * Attach listeners to a player
      */
     setupPlayerEvents(player, guildId, textChannel) {

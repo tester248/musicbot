@@ -78,10 +78,21 @@ class QueueManager {
         const song = queue.currentSong;
 
         if (queue.player) {
-            await queue.player.playTrack({ track: { encoded: song.encoded } });
-            // Apply filters only when the effective filter state changed, to avoid
-            // restarting the stream (and stuttering) on every track.
-            await this.refreshFilters(guildId);
+            try {
+                await queue.player.playTrack({ track: { encoded: song.encoded } });
+                // Apply filters only when the effective filter state changed, to avoid
+                // restarting the stream (and stuttering) on every track.
+                await this.refreshFilters(guildId);
+            } catch (e) {
+                // "Session null not found" means the player's voice connection is
+                // stale (the node it was connected to died and the session was
+                // lost). Surface it so PlaybackManager can recover.
+                if (this.onPlayError) {
+                    await this.onPlayError(guildId, e);
+                } else {
+                    console.error('playNext error:', e.message);
+                }
+            }
         }
     }
 
