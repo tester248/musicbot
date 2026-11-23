@@ -43,6 +43,24 @@ const Nodes = [
         url: 'lavalink-v4.triniumhost.com:443',
         auth: 'free',
         secure: true
+    },
+    {
+        name: 'Vinster',
+        url: 'freelavalinkvinster.in:9018',
+        auth: 'youshallnotpass',
+        secure: false
+    },
+    {
+        name: 'Kasawa',
+        url: 'lava2.kasawa.pro:2334',
+        auth: 'youshallnotpass',
+        secure: false
+    },
+    {
+        name: 'Jirayu v4 (13592)',
+        url: 'lavalink.jirayu.net:13592',
+        auth: 'youshallnotpass',
+        secure: false
     }
 ];
 
