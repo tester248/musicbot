@@ -12,6 +12,9 @@ RUN npm install --production
 # Copy bot source code (including .env.example, entrypoint.sh, etc.)
 COPY . .
 
+# Build the Next.js dashboard (static export served by Express)
+RUN cd /usr/src/app/dashboard && npm ci && npm run build && rm -rf node_modules .next
+
 # Define Lavalink version (can be overridden via build‑arg)
 ARG LAVALINK_VERSION=4.1.1
 ARG YOUTUBE_PLUGIN_VERSION=1.16.0

@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 class Dashboard {
     constructor(client, queueManager, shoukaku, commandHandler = null, playbackManager = null) {
@@ -26,7 +27,11 @@ class Dashboard {
     }
 
     setupExpress() {
-        this.app.use(express.static(path.join(__dirname, '../public')));
+        // Serve the Next.js dashboard static export when present, else fall back
+        // to the legacy public/ frontend.
+        const nextOut = path.join(__dirname, '../dashboard/out');
+        const staticDir = fs.existsSync(nextOut) ? nextOut : path.join(__dirname, '../public');
+        this.app.use(express.static(staticDir));
         this.app.use(express.json());
 
         this.app.get('/api/stats', (req, res) => {

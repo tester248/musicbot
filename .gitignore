@@ -5,6 +5,9 @@ cookies.txt
 .tmp_chat_images/
 data/
 *.log
+.next/
+out/
+
 lavalink/Lavalink.jar
 lavalink/logs/
 lavalink/plugins/
