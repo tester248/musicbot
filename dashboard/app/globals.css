@@ -8,40 +8,57 @@
     height: 100%;
   }
   body {
-    @apply bg-surface text-ink antialiased;
-    background-image:
-      radial-gradient(1200px 600px at 80% -10%, rgba(16, 185, 129, 0.08), transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, rgba(6, 182, 212, 0.06), transparent 55%);
+    @apply antialiased text-ink;
+    background:
+      radial-gradient(1100px 700px at 85% -10%, rgba(16, 185, 129, 0.16), transparent 60%),
+      radial-gradient(900px 600px at -10% 5%, rgba(6, 182, 212, 0.10), transparent 55%),
+      radial-gradient(700px 500px at 50% 120%, rgba(99, 102, 241, 0.10), transparent 60%),
+      #05070d;
   }
 }
 
 @layer components {
+  /* Glass panel */
   .glass {
-    @apply bg-surface-low/90 backdrop-blur-md border border-white/[0.07] rounded-xl;
+    @apply relative rounded-3xl border border-white/[0.14] bg-white/[0.05] backdrop-blur-2xl;
+    box-shadow:
+      0 12px 40px -12px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  .glass-strong {
+    @apply relative rounded-3xl border border-white/[0.18] bg-white/[0.08] backdrop-blur-3xl;
+    box-shadow:
+      0 16px 48px -12px rgba(0, 0, 0, 0.65),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
   .glass-hover {
-    @apply transition-colors hover:bg-surface-mid/80 hover:border-white/[0.12];
+    @apply transition-all duration-200 hover:bg-white/[0.08] hover:border-white/[0.22] hover:-translate-y-0.5;
   }
+
   .btn {
-    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition-all select-none disabled:opacity-40 disabled:pointer-events-none active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-full transition-all select-none disabled:opacity-40 disabled:pointer-events-none active:scale-[0.96];
   }
   .btn-primary {
-    @apply btn bg-primary text-surface hover:bg-primary-hover shadow-neon;
+    @apply btn bg-primary text-surface hover:brightness-110;
+    box-shadow: 0 4px 20px -4px rgba(16, 185, 129, 0.5);
   }
   .btn-ghost {
-    @apply btn bg-white/[0.04] border border-white/[0.08] text-ink hover:bg-white/[0.08] hover:border-white/[0.16];
+    @apply btn bg-white/[0.06] border border-white/[0.14] text-ink hover:bg-white/[0.12];
   }
   .btn-icon {
-    @apply btn w-9 h-9 bg-white/[0.04] border border-white/[0.08] text-ink hover:bg-white/[0.08];
+    @apply btn w-10 h-10 bg-white/[0.06] border border-white/[0.14] text-ink hover:bg-white/[0.12];
   }
+
   .input {
-    @apply w-full bg-[#080c14] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm placeholder:text-slate-500 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20;
+    @apply w-full bg-black/25 border border-white/[0.12] rounded-2xl px-4 py-3 text-sm placeholder:text-slate-500 outline-none transition-colors focus:border-primary/60 focus:ring-4 focus:ring-primary/10;
   }
+
   .chip {
-    @apply inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full text-[11px] font-medium uppercase tracking-wider;
+    @apply inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium uppercase tracking-wider border;
   }
+
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #334155 transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
 }
