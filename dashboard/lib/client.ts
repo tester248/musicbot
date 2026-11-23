@@ -55,3 +55,11 @@ export function formatDurationMs(ms: number): string {
 export function formatDurationHuman(str: string): string {
   return str || "0:00";
 }
+
+/** Fallback chain for cover art: provided URL → derived YouTube thumb → placeholder. */
+export function art(url: string | undefined | null, uri?: string): string {
+  if (url) return url;
+  const m = (uri || "").match(/[?&]v=([\w-]{11})|youtu\.be\/([\w-]{11})/);
+  if (m) return `https://i.ytimg.com/vi/${m[1] || m[2]}/hqdefault.jpg`;
+  return "https://via.placeholder.com/160";
+}

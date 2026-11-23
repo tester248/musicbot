@@ -1,5 +1,15 @@
 const { Collection } = require('discord.js');
 
+/**
+ * Derive a YouTube thumbnail from a watch URL when Lavalink doesn't provide
+ * artworkUrl (common for ytsearch results).
+ */
+function youtubeThumb(uri) {
+    const m = String(uri || '').match(/[?&]v=([\w-]{11})|youtu\.be\/([\w-]{11})/);
+    const id = m ? (m[1] || m[2]) : null;
+    return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : '';
+}
+
 class QueueManager {
     constructor() {
         this.queues = new Collection();
@@ -39,7 +49,7 @@ class QueueManager {
                 title: track.info.title,
                 url: track.info.uri,
                 duration: formatDuration(track.info.length / 1000),
-                thumbnail: track.info.artworkUrl || '',
+                thumbnail: track.info.artworkUrl || youtubeThumb(track.info.uri) || '',
                 requester: requester,
                 encoded: track.encoded,
                 originalQuery: originalQuery || track.info.title, // For fallback

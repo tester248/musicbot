@@ -56,14 +56,19 @@ class Dashboard {
                 if (!node) return res.status(503).json({ error: 'No node available' });
                 const result = await node.rest.resolve('ytsearch:' + query);
                 const tracks = (result && result.loadType === 'search' && Array.isArray(result.data)) ? result.data : [];
-                res.json({ tracks: tracks.slice(0, 12).map(t => ({
-                    title: t.info.title,
-                    author: t.info.author || '',
-                    duration: t.info.length || 0,
-                    uri: t.info.uri || '',
-                    thumbnail: t.info.artworkUrl || '',
-                    encoded: t.encoded
-                })) });
+                res.json({ tracks: tracks.slice(0, 12).map(t => {
+                    const uri = t.info.uri || '';
+                    const ytId = uri.match(/[?&]v=([\w-]{11})|youtu\.be\/([\w-]{11})/);
+                    const thumb = t.info.artworkUrl || (ytId ? `https://i.ytimg.com/vi/${ytId[1] || ytId[2]}/hqdefault.jpg` : '');
+                    return {
+                        title: t.info.title,
+                        author: t.info.author || '',
+                        duration: t.info.length || 0,
+                        uri,
+                        thumbnail: thumb,
+                        encoded: t.encoded
+                    };
+                }) });
             } catch (e) {
                 console.error('Search API error:', e);
                 res.status(500).json({ error: 'Search failed' });

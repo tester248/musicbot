@@ -14,7 +14,7 @@ import {
   Square,
   Volume2,
 } from "lucide-react";
-import { api, formatDurationMs } from "@/lib/client";
+import { api, art, formatDurationMs } from "@/lib/client";
 import { useGuildPlayer, useLiveStats } from "@/lib/useLive";
 import type { SearchTrack } from "@/lib/types";
 
@@ -34,6 +34,18 @@ export default function ListenView({ initialGuild }: { initialGuild: string | nu
   const [searching, setSearching] = useState(false);
 
   const { player, loading, refresh, act } = useGuildPlayer(guildId);
+
+  // Optimistic volume: slider reflects local drag instantly, synced from server.
+  const [vol, setVol] = useState(100);
+  const volTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (player && typeof player.volume === "number") setVol(player.volume);
+  }, [player?.volume]);
+
+  const changeVolume = (v: number) => {
+    setVol(v);
+    act("volume", v);
+  };
 
   useEffect(() => {
     if (initialGuild) setGuildId(initialGuild);
@@ -110,7 +122,7 @@ export default function ListenView({ initialGuild }: { initialGuild: string | nu
             {results.map((t, i) => (
               <div key={i} className="flex items-center gap-3 bg-white/[0.04] rounded-2xl px-4 py-3 hover:bg-white/[0.08] transition-colors">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={t.thumbnail || "https://via.placeholder.com/40"} className="w-10 h-10 rounded-xl object-cover" alt="" />
+                <img src={art(t.thumbnail, t.uri)} className="w-10 h-10 rounded-xl object-cover" alt="" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{t.title}</p>
                   <p className="text-[11px] text-ink-variant truncate">{t.author}</p>
@@ -134,7 +146,7 @@ export default function ListenView({ initialGuild }: { initialGuild: string | nu
           <>
             <div className="flex items-center gap-8">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={np.thumbnail || "https://via.placeholder.com/160"} className="w-36 h-36 lg:w-44 lg:h-44 rounded-[2rem] object-cover border border-white/[0.12] shadow-2xl" alt="" />
+              <img src={art(np.thumbnail)} className="w-36 h-36 lg:w-44 lg:h-44 rounded-[2rem] object-cover border border-white/[0.12] shadow-2xl" alt="" />
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] text-ink-muted uppercase tracking-widest font-semibold">Now Playing</p>
                 <h2 className="font-display text-2xl lg:text-3xl font-bold truncate leading-tight mt-2">{np.title}</h2>
@@ -171,8 +183,8 @@ export default function ListenView({ initialGuild }: { initialGuild: string | nu
 
             <div className="flex items-center gap-4">
               <Volume2 size={16} className="text-ink-variant" />
-              <input type="range" min={0} max={100} value={player.volume} onChange={(e) => act("volume", Number(e.target.value))} className="w-40 accent-primary" />
-              <span className="text-[11px] text-ink-variant font-mono">{player.volume}%</span>
+              <input type="range" min={0} max={100} value={vol} onChange={(e) => changeVolume(Number(e.target.value))} className="w-40 accent-primary" />
+              <span className="text-[11px] text-ink-variant font-mono">{vol}%</span>
             </div>
           </>
         ) : (

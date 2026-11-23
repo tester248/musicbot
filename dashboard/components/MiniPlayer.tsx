@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Pause, Play, SkipForward, Square } from "lucide-react";
 import type { Stats } from "@/lib/types";
 import { useGuildPlayer } from "@/lib/useLive";
-import { formatDurationMs } from "@/lib/client";
+import { art, formatDurationMs } from "@/lib/client";
 
 export default function MiniPlayer({ stats }: { stats: Stats | null }) {
   const router = useRouter();
@@ -21,7 +21,7 @@ export default function MiniPlayer({ stats }: { stats: Stats | null }) {
     <div className="fixed bottom-4 inset-x-0 z-40 px-4">
       <div className="max-w-4xl mx-auto glass-strong flex items-center gap-4 px-4 py-3 rounded-full">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={np.thumbnail || "https://via.placeholder.com/40"} className="w-11 h-11 rounded-full object-cover border border-white/[0.15]" alt="" />
+        <img src={art(np.thumbnail)} className="w-11 h-11 rounded-full object-cover border border-white/[0.15]" alt="" />
 
         <button
           onClick={() => router.push(`/listen?guild=${active.id}`)}
